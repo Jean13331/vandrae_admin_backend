@@ -16,23 +16,28 @@ export type AdminUser = {
 }
 
 export type AdminUserRecord = AdminUser & {
-  passwordHash: string
+  passwordHash: string | null
 }
 
 export type CreateUsuarioInput = {
   nome: string
   email: string
-  passwordHash: string
+  passwordHash: string | null
   dataNascimento: string
   cidade: string
   estado: string
+  authProvider?: 'password' | 'google'
+  googleSub?: string | null
 }
 
 export interface AdminUserRepository {
   findByEmail(email: string): Promise<AdminUserRecord | null>
+  findByGoogleSub(googleSub: string): Promise<AdminUserRecord | null>
   findById(id: string): Promise<AdminUserRecord | null>
   list(filters?: { q?: string; role?: 'admin' | 'user' }): Promise<AdminUser[]>
   create(input: CreateUsuarioInput): Promise<AdminUser>
+  createCommunity(input: CreateUsuarioInput): Promise<AdminUserRecord>
+  linkGoogleSub(id: string, googleSub: string): Promise<AdminUserRecord | null>
   setAtivo(id: string, ativo: boolean): Promise<AdminUser | null>
   findDetail(id: string): Promise<CommunityUserDetail | null>
 }
@@ -44,6 +49,15 @@ export type CommunityUserDetail = AdminUser & {
   avaliacoes: number
   trilhasRecentes: Array<{ id: string; nome: string; ativo: boolean }>
   denunciasRecentes: Array<{ id: string; motivo: string; status: string; createdAt: string }>
+}
+
+export function toPublicUser(record: AdminUserRecord): AdminUser {
+  return {
+    id: record.id,
+    name: record.name,
+    email: record.email,
+    role: record.role,
+  }
 }
 
 export function toPublicAdminUser(record: AdminUserRecord): AdminUser {
@@ -60,7 +74,7 @@ type UsuarioRow = {
   codigo: number
   nome: string
   email: string
-  senha: string
+  senha: string | null
   data_nascimento: Date | string
   cidade: string
   estado: string
@@ -124,6 +138,16 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
 
       return result.rows[0] ? mapUserRecord(result.rows[0]) : null
     },
+    async findByGoogleSub(googleSub) {
+      const result = await pool.query<UsuarioRow>(
+        `${usuarioSelect}
+         WHERE google_sub = $1
+         LIMIT 1`,
+        [googleSub],
+      )
+
+      return result.rows[0] ? mapUserRecord(result.rows[0]) : null
+    },
     async list(filters = {}) {
       const result = await pool.query<UsuarioRow>(
         `${usuarioSelect}
@@ -160,6 +184,46 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
       )
 
       return mapPublicUser(result.rows[0])
+    },
+    async createCommunity(input) {
+      const codigoResult = await pool.query<{ next: string }>(
+        'SELECT COALESCE(MAX(codigo), 0) + 1 AS next FROM usuario',
+      )
+      const codigo = Number(codigoResult.rows[0]?.next ?? 1)
+
+      const result = await pool.query<UsuarioRow>(
+        `INSERT INTO usuario (
+            codigo, nome, email, senha, data_nascimento, cidade, estado, role, ativo,
+            auth_provider, google_sub
+         )
+         VALUES ($1, $2, $3, $4, $5::date, $6, $7, 'USER', TRUE, $8, $9)
+         RETURNING id, codigo, nome, email, senha, data_nascimento, cidade, estado,
+                   data_cadastro, role, ativo`,
+        [
+          codigo,
+          input.nome,
+          input.email,
+          input.passwordHash,
+          input.dataNascimento,
+          input.cidade,
+          input.estado,
+          input.authProvider ?? 'password',
+          input.googleSub ?? null,
+        ],
+      )
+
+      return mapUserRecord(result.rows[0])
+    },
+    async linkGoogleSub(id, googleSub) {
+      const result = await pool.query<UsuarioRow>(
+        `UPDATE usuario
+         SET google_sub = $2, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING id, codigo, nome, email, senha, data_nascimento, cidade, estado,
+                   data_cadastro, role, ativo`,
+        [id, googleSub],
+      )
+      return result.rows[0] ? mapUserRecord(result.rows[0]) : null
     },
     async setAtivo(id, ativo) {
       const result = await pool.query<UsuarioRow>(

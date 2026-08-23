@@ -4,7 +4,7 @@ export const schemaStatements = [
     codigo INTEGER NOT NULL UNIQUE,
     nome VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
-    senha VARCHAR(255) NOT NULL,
+    senha VARCHAR(255),
     data_nascimento DATE NOT NULL,
     cidade VARCHAR(255) NOT NULL,
     estado VARCHAR(255) NOT NULL,
@@ -12,7 +12,10 @@ export const schemaStatements = [
     data_modificacao TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     role VARCHAR(20) NOT NULL DEFAULT 'USER',
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
-    CONSTRAINT chk_usuario_role CHECK (role IN ('USER', 'ADMIN'))
+    auth_provider VARCHAR(20) NOT NULL DEFAULT 'password',
+    google_sub VARCHAR(255),
+    CONSTRAINT chk_usuario_role CHECK (role IN ('USER', 'ADMIN')),
+    CONSTRAINT chk_usuario_auth_provider CHECK (auth_provider IN ('password', 'google'))
   )`,
   `CREATE TABLE IF NOT EXISTS admin_email_autorizado (
     email VARCHAR(255) PRIMARY KEY,
@@ -85,4 +88,18 @@ BEGIN
 END $$`,
   `CREATE INDEX IF NOT EXISTS idx_auditoria_data ON auditoria(data_cadastro DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_auditoria_status ON auditoria(status)`,
+  `DO $$
+BEGIN
+  ALTER TABLE usuario ALTER COLUMN senha DROP NOT NULL;
+  ALTER TABLE usuario ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(20) NOT NULL DEFAULT 'password';
+  ALTER TABLE usuario ADD COLUMN IF NOT EXISTS google_sub VARCHAR(255);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_usuario_auth_provider'
+  ) THEN
+    ALTER TABLE usuario
+      ADD CONSTRAINT chk_usuario_auth_provider
+      CHECK (auth_provider IN ('password', 'google'));
+  END IF;
+END $$`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_usuario_google_sub ON usuario(google_sub) WHERE google_sub IS NOT NULL`,
 ]

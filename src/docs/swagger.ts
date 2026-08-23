@@ -21,7 +21,7 @@ export function setupSwagger(app: Express, env: Env) {
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <title>Vandrae Admin API</title>
+    <title>Vandrae API</title>
     <link rel="stylesheet" href="/docs-assets/swagger-ui.css" />
     <style>
       html { box-sizing: border-box; overflow-y: scroll; }
@@ -40,7 +40,7 @@ export function setupSwagger(app: Express, env: Env) {
         persistAuthorization: true,
         responseInterceptor: (res) => {
           try {
-            const isLogin = String(res.url || '').includes('/admin/auth/login')
+            const isLogin = /\/auth\/login(?:\?|$)/.test(String(res.url || ''))
             if (isLogin && res.status === 200 && res.text) {
               const body = JSON.parse(res.text)
               if (body.token) {

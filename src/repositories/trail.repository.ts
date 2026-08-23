@@ -97,8 +97,10 @@ export type CreateTrailPhotoInput = {
 
 export interface TrailRepository {
   list(filters: ListTrailsFilters): Promise<TrailSummary[]>
+  listExplore(): Promise<TrailDetail[]>
   findById(id: string): Promise<TrailDetail | null>
   findPhoto(trailId: string, photoId: string): Promise<TrailPhotoFile | null>
+  findExplorePhoto(trailId: string, photoId: string): Promise<TrailPhotoFile | null>
   update(id: string, input: UpdateTrailInput): Promise<TrailDetail | null>
   create(input: CreateTrailInput): Promise<TrailDetail | null>
   addPoint(trailId: string, input: CreateTrailPointInput): Promise<TrailDetail | null>
@@ -130,6 +132,7 @@ type TrailRow = {
 
 type PointRow = {
   id: string
+  trilha_id?: string
   codigo: number
   tipo: string
   nome: string
@@ -148,6 +151,24 @@ type PhotoRow = {
   ativo: boolean
   pontos_trilha_id: string | null
   data_cadastro: Date | string
+}
+
+type ExplorePhotoRow = PhotoRow & {
+  trilha_id: string
+}
+
+function mapPhoto(trailId: string, photo: PhotoRow, app: boolean): TrailPhoto {
+  const url = photo.tem_arquivo
+    ? `${app ? '/trails' : '/admin/trails'}/${trailId}/photos/${photo.id}`
+    : photo.url ?? ''
+  return {
+    id: photo.id,
+    codigo: Number(photo.codigo),
+    url,
+    descricao: photo.descricao,
+    ativo: photo.ativo,
+    createdAt: toIso(photo.data_cadastro),
+  }
 }
 
 function toIso(value: Date | string) {
@@ -173,9 +194,9 @@ function mapSummary(row: TrailRow): TrailSummary {
     createdAt: toIso(row.data_cadastro),
     updatedAt: toIso(row.data_modificacao),
     autor: {
-      id: row.autor_id,
-      nome: row.autor_nome,
-      email: row.autor_email,
+      id: row.autor_id ?? '',
+      nome: row.autor_nome ?? 'Comunidade',
+      email: row.autor_email ?? '',
     },
     comprimentoKm: meters === null ? null : Math.round((meters / 1000) * 100) / 100,
     pontos: Number(row.pontos ?? 0),
@@ -245,6 +266,88 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
       return result.rows.map(mapSummary)
     },
 
+    async listExplore() {
+      const result = await pool.query<TrailRow>(
+        `${trailSelect},
+            ST_Y(ST_StartPoint(ST_LineMerge(t.trajeto::geometry))) AS inicio_lat,
+            ST_X(ST_StartPoint(ST_LineMerge(t.trajeto::geometry))) AS inicio_lng,
+            ST_Y(ST_EndPoint(ST_LineMerge(t.trajeto::geometry))) AS fim_lat,
+            ST_X(ST_EndPoint(ST_LineMerge(t.trajeto::geometry))) AS fim_lng,
+            ST_AsGeoJSON(t.trajeto::geometry)::json AS trajeto
+         FROM trilha t
+         LEFT JOIN usuario u ON u.id = t.usuario_id
+         WHERE t.ativo = TRUE
+         ORDER BY t.data_cadastro DESC`,
+      )
+
+      const ids = result.rows.map((row) => row.id)
+      const points = ids.length
+        ? await pool.query<PointRow>(
+            `SELECT
+                id, trilha_id, codigo, tipo, nome, descricao, data_cadastro,
+                ST_Y(localizacao::geometry) AS lat,
+                ST_X(localizacao::geometry) AS lng
+             FROM pontos_trilha
+             WHERE trilha_id = ANY($1::uuid[])
+             ORDER BY codigo ASC`,
+            [ids],
+          )
+        : { rows: [] as PointRow[] }
+
+      const pointsByTrail = new Map<string, TrailPoint[]>()
+      for (const point of points.rows) {
+        const trailId = point.trilha_id
+        if (!trailId) continue
+        const list = pointsByTrail.get(trailId) ?? []
+        list.push({
+          id: point.id,
+          codigo: Number(point.codigo),
+          tipo: point.tipo,
+          nome: point.nome,
+          descricao: point.descricao,
+          lat: toNumber(point.lat),
+          lng: toNumber(point.lng),
+          fotoUrl: null,
+          createdAt: toIso(point.data_cadastro),
+        })
+        pointsByTrail.set(trailId, list)
+      }
+
+      const photos = ids.length
+        ? await pool.query<ExplorePhotoRow>(
+            `SELECT id, trilha_id, codigo, url, descricao, ativo, data_cadastro, pontos_trilha_id,
+                    tem_arquivo
+             FROM (
+               SELECT id, trilha_id, codigo, url, descricao, ativo, data_cadastro, pontos_trilha_id,
+                      (arquivo IS NOT NULL) AS tem_arquivo,
+                      ROW_NUMBER() OVER (PARTITION BY trilha_id ORDER BY codigo ASC) AS rn
+               FROM fotografia
+               WHERE trilha_id = ANY($1::uuid[])
+                 AND ativo = TRUE
+             ) fotos
+             WHERE rn <= 8
+             ORDER BY trilha_id, codigo`,
+            [ids],
+          )
+        : { rows: [] as ExplorePhotoRow[] }
+
+      const photosByTrail = new Map<string, TrailPhoto[]>()
+      for (const photo of photos.rows) {
+        const list = photosByTrail.get(photo.trilha_id) ?? []
+        list.push(mapPhoto(photo.trilha_id, photo, true))
+        photosByTrail.set(photo.trilha_id, list)
+      }
+
+      return result.rows.map((row) => ({
+        ...mapSummary(row),
+        inicio: pointLatLng(row.inicio_lat ?? null, row.inicio_lng ?? null),
+        fim: pointLatLng(row.fim_lat ?? null, row.fim_lng ?? null),
+        trajeto: parseTrajeto(row.trajeto),
+        pontosDetalhe: pointsByTrail.get(row.id) ?? [],
+        fotografias: photosByTrail.get(row.id) ?? [],
+      }))
+    },
+
     async findById(id) {
       const result = await pool.query<TrailRow>(
         `${trailSelect},
@@ -286,18 +389,11 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
 
       const fotoPorPonto = new Map<string, string>()
       const fotografias = photos.rows.map((photo) => {
-        const url = photo.tem_arquivo ? `/admin/trails/${id}/photos/${photo.id}` : photo.url ?? ''
-        if (photo.pontos_trilha_id && url && !fotoPorPonto.has(photo.pontos_trilha_id)) {
-          fotoPorPonto.set(photo.pontos_trilha_id, url)
+        const mapped = mapPhoto(id, photo, false)
+        if (photo.pontos_trilha_id && mapped.url && !fotoPorPonto.has(photo.pontos_trilha_id)) {
+          fotoPorPonto.set(photo.pontos_trilha_id, mapped.url)
         }
-        return {
-          id: photo.id,
-          codigo: Number(photo.codigo),
-          url,
-          descricao: photo.descricao,
-          ativo: photo.ativo,
-          createdAt: toIso(photo.data_cadastro),
-        }
+        return mapped
       })
 
       return {
@@ -431,6 +527,29 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
          WHERE id = $1
            AND trilha_id = $2
            AND arquivo IS NOT NULL
+         LIMIT 1`,
+        [photoId, trailId],
+      )
+
+      const row = result.rows[0]
+      if (!row?.arquivo) return null
+
+      return {
+        arquivo: row.arquivo,
+        contentType: row.content_type || 'image/jpeg',
+      }
+    },
+
+    async findExplorePhoto(trailId, photoId) {
+      const result = await pool.query<{ arquivo: Buffer; content_type: string | null }>(
+        `SELECT f.arquivo, f.content_type
+         FROM fotografia f
+         INNER JOIN trilha t ON t.id = f.trilha_id
+         WHERE f.id = $1
+           AND f.trilha_id = $2
+           AND f.arquivo IS NOT NULL
+           AND f.ativo = TRUE
+           AND t.ativo = TRUE
          LIMIT 1`,
         [photoId, trailId],
       )

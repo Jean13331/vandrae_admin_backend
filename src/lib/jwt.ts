@@ -4,8 +4,15 @@ import type { Env } from '../config/env'
 export type JwtPayload = {
   sub: string
   email: string
-  role: 'admin'
+  role: 'admin' | 'user'
   jti: string
+}
+
+export type GoogleProfilePayload = {
+  typ: 'google-profile'
+  googleSub: string
+  email: string
+  name: string
 }
 
 export function signAccessToken(payload: Omit<JwtPayload, 'jti'> & { jti: string }, env: Env) {
@@ -33,4 +40,40 @@ export function verifyAccessToken(token: string, env: Env) {
   }
 
   return decoded as JwtPayload
+}
+
+export function signGoogleProfileToken(payload: Omit<GoogleProfilePayload, 'typ'>, env: Env) {
+  return jwt.sign(
+    {
+      typ: 'google-profile',
+      googleSub: payload.googleSub,
+      email: payload.email,
+      name: payload.name,
+    },
+    env.JWT_SECRET,
+    { expiresIn: '20m' },
+  )
+}
+
+export function verifyGoogleProfileToken(token: string, env: Env): GoogleProfilePayload {
+  const decoded = jwt.verify(token, env.JWT_SECRET)
+  if (typeof decoded === 'string') {
+    throw new Error('Token inválido.')
+  }
+  const payload = decoded as jwt.JwtPayload & Partial<GoogleProfilePayload>
+  if (
+    payload.typ !== 'google-profile' ||
+    typeof payload.googleSub !== 'string' ||
+    typeof payload.email !== 'string' ||
+    typeof payload.name !== 'string'
+  ) {
+    throw new Error('Token inválido.')
+  }
+
+  return {
+    typ: 'google-profile',
+    googleSub: payload.googleSub,
+    email: payload.email,
+    name: payload.name,
+  }
 }

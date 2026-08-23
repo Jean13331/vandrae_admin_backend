@@ -5,9 +5,12 @@ import type { Env } from './config/env'
 import { errorHandler } from './middleware/errorHandler'
 import { notFound } from './middleware/notFound'
 import { createAdminAuthGuard } from './middleware/adminAuthGuard'
+import { createAppAuthGuard } from './middleware/appAuthGuard'
 import { createAuthMiddleware } from './middleware/auth'
+import { createAppAuthMiddleware } from './middleware/appAuth'
 import { createAuthController } from './modules/auth/auth.controller'
 import { createAuthRouter } from './modules/auth/auth.routes'
+import { createAppAuthRouter } from './modules/auth/appAuth.routes'
 import { createAuthService } from './modules/auth/auth.service'
 import { createDashboardController } from './modules/dashboard/dashboard.controller'
 import { createDashboardRouter } from './modules/dashboard/dashboard.routes'
@@ -22,6 +25,7 @@ import { createAccessRouter } from './modules/access/access.routes'
 import { createAccessService } from './modules/access/access.service'
 import { createTrailsController } from './modules/trails/trails.controller'
 import { createTrailsRouter } from './modules/trails/trails.routes'
+import { createAppTrailsRouter } from './modules/trails/appTrails.routes'
 import { createTrailsService } from './modules/trails/trails.service'
 import { createModerationController } from './modules/moderation/moderation.controller'
 import { createReportsRouter, createReviewsRouter } from './modules/moderation/moderation.routes'
@@ -43,10 +47,14 @@ export function createApp(
 ) {
   const app = express()
   app.set('trust proxy', true)
+  app.set('etag', false)
   const accessEmails = createPostgresAdminAccessRepository(pool)
   const sessions = createPostgresSessionRepository(pool)
   const requireAuth = createAdminAuthGuard(
     createAuthMiddleware(env, adminUsers, accessEmails, sessions),
+  )
+  const requireAppAuth = createAppAuthGuard(
+    createAppAuthMiddleware(env, adminUsers, sessions),
   )
 
   const authController = createAuthController(
@@ -79,15 +87,32 @@ export function createApp(
   )
   app.use(
     cors({
-      origin: env.CORS_ORIGIN,
+      origin(origin, callback) {
+        if (!origin || origin === env.CORS_ORIGIN) {
+          callback(null, true)
+          return
+        }
+        callback(null, false)
+      },
       credentials: true,
     }),
   )
   app.use(express.json({ limit: '8mb' }))
+  app.use((req, res, next) => {
+    if (!req.path.includes('/photos/')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+      res.setHeader('Pragma', 'no-cache')
+    }
+    next()
+  })
   app.use(requestLogger)
 
   setupSwagger(app, env)
   app.use('/health', createHealthRouter(pool))
+  app.use('/auth', requireAppAuth)
+  app.use('/auth', createAppAuthRouter(authController))
+  app.use('/trails', requireAppAuth)
+  app.use('/trails', createAppTrailsRouter(trailsController))
   app.use('/admin', requireAuth)
   app.use('/admin/auth', createAuthRouter(authController))
   app.use('/admin/dashboard', createDashboardRouter(dashboardController))

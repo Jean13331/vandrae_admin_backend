@@ -20,7 +20,7 @@ export function errorHandler(
 
   if (error instanceof ZodError) {
     res.status(400).json({
-      message: 'Dados inválidos.',
+      message: error.issues[0]?.message ?? 'Dados inválidos.',
       issues: error.issues.map((issue) => ({
         path: issue.path.join('.'),
         message: issue.message,

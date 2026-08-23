@@ -7,10 +7,10 @@ export function createOpenApiSpec(env: Env) {
   return {
     openapi: '3.0.3',
     info: {
-      title: 'Vandrae Admin API',
+      title: 'Vandrae API',
       description:
-        'Faça POST /admin/auth/login para receber `token` (access) e `refreshToken`. Nas rotas /admin, envie Authorization: Bearer <token>. Quando o access expirar, chame POST /admin/auth/refresh.',
-      version: '0.1.0',
+        'API do painel admin (`/admin`) e do app (`/auth`, `/trails`).\n\n**Painel:** POST `/admin/auth/login` → `token` + `refreshToken`. Nas rotas `/admin`, envie `Authorization: Bearer <token>`.\n\n**App:** POST `/auth/login`, `/auth/register` ou `/auth/google` → o mesmo par de tokens. Nas rotas `/trails` e `/auth/me`, envie o Bearer do app.',
+      version: '0.2.0',
     },
     servers: [
       {
@@ -20,9 +20,11 @@ export function createOpenApiSpec(env: Env) {
     ],
     tags: [
       { name: 'Health', description: 'Saúde da API' },
+      { name: 'App Auth', description: 'Cadastro e login do aplicativo' },
+      { name: 'App Trails', description: 'Trilhas ativas no mapa do app' },
       { name: 'Auth', description: 'Autenticação de administrador' },
       { name: 'Dashboard', description: 'Visão geral do painel' },
-      { name: 'Trails', description: 'Trilhas cadastradas' },
+      { name: 'Trails', description: 'Trilhas no painel (CRUD, pontos e fotos)' },
       { name: 'Reports', description: 'Denúncias da comunidade' },
       { name: 'Reviews', description: 'Avaliações e comentários' },
       { name: 'Users', description: 'Usuários do painel e do app' },
@@ -56,6 +58,102 @@ export function createOpenApiSpec(env: Env) {
             refreshToken: { type: 'string', description: 'Refresh token (longo, rotacionado)' },
           },
         },
+        AppUser: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string' },
+            email: { type: 'string', format: 'email' },
+            role: { type: 'string', enum: ['admin', 'user'] },
+          },
+        },
+        AppAuthSession: {
+          type: 'object',
+          properties: {
+            user: { $ref: '#/components/schemas/AppUser' },
+            token: { type: 'string', description: 'Access token JWT do app' },
+            refreshToken: { type: 'string' },
+          },
+        },
+        GoogleNeedsProfile: {
+          type: 'object',
+          properties: {
+            needsProfile: { type: 'boolean', example: true },
+            profileToken: { type: 'string', description: 'JWT temporário (cerca de 20 min) para POST /auth/google/complete' },
+            name: { type: 'string' },
+            email: { type: 'string', format: 'email' },
+          },
+        },
+        ExploreTrailPoint: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            codigo: { type: 'integer' },
+            tipo: {
+              type: 'string',
+              enum: [
+                'ENTRADA',
+                'ESTACIONAMENTO',
+                'CACHOEIRA',
+                'MIRANTE',
+                'PONTO_DE_AGUA',
+                'PONTE',
+                'ACAMPAMENTO',
+                'BANHEIRO',
+                'PERIGO',
+              ],
+            },
+            nome: { type: 'string' },
+            descricao: { type: 'string', nullable: true },
+            lat: { type: 'number', nullable: true },
+            lng: { type: 'number', nullable: true },
+          },
+        },
+        ExploreTrailPhoto: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            codigo: { type: 'integer' },
+            url: {
+              type: 'string',
+              description: 'Caminho relativo, ex. /trails/{id}/photos/{photoId}. Baixe com o Bearer do app.',
+            },
+            descricao: { type: 'string', nullable: true },
+          },
+        },
+        ExploreTrail: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            nome: { type: 'string' },
+            descricao: { type: 'string', nullable: true },
+            comprimentoKm: { type: 'number', nullable: true },
+            notaMedia: { type: 'number', nullable: true },
+            inicio: {
+              type: 'object',
+              nullable: true,
+              properties: { lat: { type: 'number' }, lng: { type: 'number' } },
+            },
+            fim: {
+              type: 'object',
+              nullable: true,
+              properties: { lat: { type: 'number' }, lng: { type: 'number' } },
+            },
+            trajeto: {
+              type: 'object',
+              nullable: true,
+              description: 'GeoJSON LineString ou MultiLineString (coordenadas [lng, lat])',
+            },
+            pontosDetalhe: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ExploreTrailPoint' },
+            },
+            fotografias: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ExploreTrailPhoto' },
+            },
+          },
+        },
         DashboardStats: {
           type: 'object',
           properties: {
@@ -87,6 +185,303 @@ export function createOpenApiSpec(env: Env) {
             200: {
               description: 'API disponível',
             },
+          },
+        },
+      },
+      '/auth/register': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Cria conta do app',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['name', 'email', 'password', 'birthDate', 'city', 'state'],
+                  properties: {
+                    name: { type: 'string' },
+                    email: { type: 'string', format: 'email' },
+                    password: { type: 'string', minLength: 6 },
+                    birthDate: { type: 'string', example: '12/04/1995', description: 'DD/MM/AAAA ou AAAA-MM-DD' },
+                    city: { type: 'string' },
+                    state: { type: 'string', example: 'SP' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: 'Conta criada',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/AppAuthSession' },
+                },
+              },
+            },
+            409: { description: 'E-mail já cadastrado' },
+          },
+        },
+      },
+      '/auth/login': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Login do app (e-mail e senha)',
+          description: 'Contas só Google recebem 401: "Esta conta entra com o Google."',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email', 'password'],
+                  properties: {
+                    email: { type: 'string', format: 'email' },
+                    password: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Sessão do app',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/AppAuthSession' },
+                },
+              },
+            },
+            401: { description: 'Credenciais inválidas' },
+          },
+        },
+      },
+      '/auth/google': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Login ou início de cadastro com Google',
+          description:
+            'Envie `idToken` **ou** `code` + `redirectUri` (+ `codeVerifier` no PKCE). Usuário existente devolve sessão. Usuário novo devolve `needsProfile` + `profileToken`.',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    idToken: { type: 'string' },
+                    code: { type: 'string' },
+                    redirectUri: { type: 'string', format: 'uri' },
+                    codeVerifier: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Sessão ou pedido de perfil (needsProfile)',
+              content: {
+                'application/json': {
+                  schema: {
+                    oneOf: [
+                      { $ref: '#/components/schemas/AppAuthSession' },
+                      { $ref: '#/components/schemas/GoogleNeedsProfile' },
+                    ],
+                  },
+                },
+              },
+            },
+            401: { description: 'Token ou código Google inválido' },
+          },
+        },
+      },
+      '/auth/google/complete': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Conclui o primeiro cadastro Google',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['profileToken', 'birthDate', 'city', 'state'],
+                  properties: {
+                    profileToken: { type: 'string' },
+                    birthDate: { type: 'string', example: '12/04/1995' },
+                    city: { type: 'string' },
+                    state: { type: 'string', example: 'SP' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: 'Conta Google criada',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/AppAuthSession' },
+                },
+              },
+            },
+            401: { description: 'profileToken expirado' },
+          },
+        },
+      },
+      '/auth/refresh': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Renova o access token do app',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['refreshToken'],
+                  properties: { refreshToken: { type: 'string' } },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Nova sessão',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/AppAuthSession' },
+                },
+              },
+            },
+            401: { description: 'Refresh inválido ou expirado' },
+          },
+        },
+      },
+      '/auth/logout': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Encerra a sessão do app',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['refreshToken'],
+                  properties: { refreshToken: { type: 'string' } },
+                },
+              },
+            },
+          },
+          responses: {
+            204: { description: 'Sessão revogada' },
+          },
+        },
+      },
+      '/auth/me': {
+        get: {
+          tags: ['App Auth'],
+          summary: 'Usuário autenticado do app',
+          responses: {
+            200: {
+              description: 'Usuário da sessão',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { user: { $ref: '#/components/schemas/AppUser' } },
+                  },
+                },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/trails': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Lista trilhas ativas para o mapa',
+          description:
+            'Requer JWT do app. Inclui trajeto GeoJSON, início/fim, pontos de interesse e até 8 fotos ativas por trilha.',
+          responses: {
+            200: {
+              description: 'Trilhas ativas',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      trails: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/ExploreTrail' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/trails/{id}': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Detalhe de uma trilha ativa, com elevação',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: { description: 'Trilha com pontos, fotos e perfil de elevação' },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Trilha inativa ou não encontrada' },
+          },
+        },
+      },
+      '/trails/{id}/photos/{photoId}': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Baixa o arquivo de uma foto da trilha',
+          description: 'Só fotos ativas de trilhas ativas. Envie o Bearer do app.',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+            {
+              name: 'photoId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Imagem (jpeg/png)',
+              content: {
+                'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+                'image/png': { schema: { type: 'string', format: 'binary' } },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Foto ou trilha não encontrada' },
           },
         },
       },
@@ -427,6 +822,36 @@ export function createOpenApiSpec(env: Env) {
           },
           responses: {
             201: { description: 'Foto adicionada' },
+          },
+        },
+      },
+      '/admin/trails/{id}/photos/{photoId}': {
+        get: {
+          tags: ['Trails'],
+          summary: 'Baixa o arquivo de uma foto (painel)',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+            {
+              name: 'photoId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Imagem (jpeg/png)',
+              content: {
+                'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+                'image/png': { schema: { type: 'string', format: 'binary' } },
+              },
+            },
+            404: { description: 'Foto não encontrada' },
           },
         },
       },

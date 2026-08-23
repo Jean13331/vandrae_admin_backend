@@ -10,6 +10,20 @@ import type {
   UpdateTrailInput,
 } from '../../repositories/trail.repository'
 
+function toAppPhotoUrls(trail: TrailDetail): TrailDetail {
+  return {
+    ...trail,
+    fotografias: trail.fotografias.map((photo) => ({
+      ...photo,
+      url: photo.url.replace(/^\/admin\/trails\//, '/trails/'),
+    })),
+    pontosDetalhe: trail.pontosDetalhe.map((point) => ({
+      ...point,
+      fotoUrl: point.fotoUrl?.replace(/^\/admin\/trails\//, '/trails/') ?? null,
+    })),
+  }
+}
+
 function decodeBase64Image(value: string) {
   const match = value.trim().match(/^data:([^;]+);base64,(.+)$/s)
   const payload = match?.[2] ?? value.replace(/\s/g, '')
@@ -34,6 +48,10 @@ export function createTrailsService(trails: TrailRepository) {
       return trails.list(filters)
     },
 
+    listExplore() {
+      return trails.listExplore()
+    },
+
     async getById(id: string) {
       const trail = await trails.findById(id)
       if (!trail) {
@@ -42,8 +60,24 @@ export function createTrailsService(trails: TrailRepository) {
       return withElevation(trail)
     },
 
+    async getExploreById(id: string) {
+      const trail = await trails.findById(id)
+      if (!trail || !trail.ativo) {
+        throw new AppError(404, 'Trilha não encontrada.')
+      }
+      return withElevation(toAppPhotoUrls(trail))
+    },
+
     async getPhoto(trailId: string, photoId: string) {
       const photo = await trails.findPhoto(trailId, photoId)
+      if (!photo) {
+        throw new AppError(404, 'Foto não encontrada.')
+      }
+      return photo
+    },
+
+    async getExplorePhoto(trailId: string, photoId: string) {
+      const photo = await trails.findExplorePhoto(trailId, photoId)
       if (!photo) {
         throw new AppError(404, 'Foto não encontrada.')
       }

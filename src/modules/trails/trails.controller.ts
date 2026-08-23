@@ -23,6 +23,17 @@ export function createTrailsController(trailsService: TrailsService) {
       res.json({ trails })
     }),
 
+    explore: asyncHandler(async (_req: Request, res: Response) => {
+      const trails = await trailsService.listExplore()
+      res.json({ trails })
+    }),
+
+    exploreById: asyncHandler(async (req: Request, res: Response) => {
+      const params = trailIdParamSchema.parse(req.params)
+      const trail = await trailsService.getExploreById(params.id)
+      res.json({ trail })
+    }),
+
     getById: asyncHandler(async (req: Request, res: Response) => {
       const params = trailIdParamSchema.parse(req.params)
       const trail = await trailsService.getById(params.id)
@@ -32,6 +43,14 @@ export function createTrailsController(trailsService: TrailsService) {
     getPhoto: asyncHandler(async (req: Request, res: Response) => {
       const params = trailPhotoParamSchema.parse(req.params)
       const photo = await trailsService.getPhoto(params.id, params.photoId)
+      res.setHeader('Content-Type', photo.contentType)
+      res.setHeader('Cache-Control', 'private, max-age=3600')
+      res.send(photo.arquivo)
+    }),
+
+    getExplorePhoto: asyncHandler(async (req: Request, res: Response) => {
+      const params = trailPhotoParamSchema.parse(req.params)
+      const photo = await trailsService.getExplorePhoto(params.id, params.photoId)
       res.setHeader('Content-Type', photo.contentType)
       res.setHeader('Cache-Control', 'private, max-age=3600')
       res.send(photo.arquivo)

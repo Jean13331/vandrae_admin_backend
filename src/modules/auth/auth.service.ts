@@ -2,8 +2,9 @@ import type { Env } from '../../config/env'
 import { durationFromNow } from '../../lib/duration'
 import { AppError } from '../../lib/errors'
 import { logger } from '../../lib/logger'
-import { signAccessToken } from '../../lib/jwt'
-import { verifyPassword } from '../../lib/password'
+import { signAccessToken, signGoogleProfileToken, verifyGoogleProfileToken } from '../../lib/jwt'
+import { verifyGoogleIdToken, exchangeGoogleAuthorizationCode } from '../../lib/googleIdToken'
+import { verifyPassword, hashPassword } from '../../lib/password'
 import {
   createAccessTokenJti,
   createRefreshToken,
@@ -12,12 +13,13 @@ import {
 import type { AdminAccessRepository } from '../../repositories/adminAccess.repository'
 import {
   toPublicAdminUser,
+  toPublicUser,
   type AdminUser,
   type AdminUserRecord,
   type AdminUserRepository,
 } from '../../repositories/adminUser.repository'
 import type { SessionRepository } from '../../repositories/session.repository'
-import type { LoginInput } from './auth.schema'
+import type { GoogleCompleteInput, GoogleIdTokenInput, LoginInput, RegisterInput } from './auth.schema'
 
 export type AuthSession = {
   user: AdminUser
@@ -87,6 +89,37 @@ export function createAuthService(
     }
   }
 
+  async function issueAppSession(user: AdminUserRecord, meta: SessionMeta = {}): Promise<AuthSession> {
+    const publicUser = toPublicUser(user)
+    const accessJti = createAccessTokenJti()
+    const refreshToken = createRefreshToken()
+
+    await sessions.create({
+      usuarioId: publicUser.id,
+      refreshTokenHash: hashRefreshToken(refreshToken),
+      accessTokenJti: accessJti,
+      userAgent: meta.userAgent,
+      ip: meta.ip,
+      expiresAt: durationFromNow(env.REFRESH_EXPIRES_IN),
+    })
+
+    const token = signAccessToken(
+      {
+        sub: publicUser.id,
+        email: publicUser.email,
+        role: publicUser.role,
+        jti: accessJti,
+      },
+      env,
+    )
+
+    return {
+      user: publicUser,
+      token,
+      refreshToken,
+    }
+  }
+
   return {
     async login(input: LoginInput, meta: SessionMeta = {}): Promise<AuthSession> {
       const user = await adminUsers.findByEmail(input.email)
@@ -109,6 +142,10 @@ export function createAuthService(
         throw new AppError(401, 'E-mail ou senha inválidos.')
       }
 
+      if (!user.passwordHash) {
+        throw new AppError(401, 'E-mail ou senha inválidos.')
+      }
+
       const passwordMatches = await verifyPassword(input.password, user.passwordHash)
 
       if (!passwordMatches) {
@@ -126,6 +163,176 @@ export function createAuthService(
       logger.audit(`[auth] login bem-sucedido: ${session.user.email}`, {
         ip: meta.ip,
         status: 200,
+        actor: session.user.email,
+      })
+      return session
+    },
+
+    async loginApp(input: LoginInput, meta: SessionMeta = {}): Promise<AuthSession> {
+      const user = await adminUsers.findByEmail(input.email)
+
+      if (!user || user.ativo === false) {
+        logger.audit(`[auth] login do app recusado: ${input.email}`, {
+          ip: meta.ip,
+          status: 401,
+          actor: input.email,
+        })
+        throw new AppError(401, 'E-mail ou senha inválidos.')
+      }
+
+      if (!user.passwordHash) {
+        throw new AppError(401, 'Esta conta entra com o Google.')
+      }
+
+      const passwordMatches = await verifyPassword(input.password, user.passwordHash)
+
+      if (!passwordMatches) {
+        logger.audit(`[auth] login do app recusado (senha inválida): ${input.email}`, {
+          ip: meta.ip,
+          status: 401,
+          actor: input.email,
+        })
+        throw new AppError(401, 'E-mail ou senha inválidos.')
+      }
+
+      const session = await issueAppSession(user, meta)
+      logger.audit(`[auth] login do app bem-sucedido: ${session.user.email}`, {
+        ip: meta.ip,
+        status: 200,
+        actor: session.user.email,
+      })
+      return session
+    },
+
+    async registerApp(input: RegisterInput, meta: SessionMeta = {}): Promise<AuthSession> {
+      const existing = await adminUsers.findByEmail(input.email)
+      if (existing) {
+        throw new AppError(409, 'Este e-mail já está cadastrado.')
+      }
+
+      let user: AdminUserRecord
+      try {
+        user = await adminUsers.createCommunity({
+          nome: input.name,
+          email: input.email,
+          passwordHash: await hashPassword(input.password),
+          dataNascimento: input.birthDate,
+          cidade: input.city,
+          estado: input.state,
+        })
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new AppError(409, 'Este e-mail já está cadastrado.')
+        }
+        throw error
+      }
+
+      const session = await issueAppSession(user, meta)
+      logger.audit(`[auth] cadastro do app: ${session.user.email}`, {
+        ip: meta.ip,
+        status: 201,
+        actor: session.user.email,
+      })
+      return session
+    },
+
+    async googleLogin(input: GoogleIdTokenInput, meta: SessionMeta = {}) {
+      const idToken =
+        input.idToken ??
+        (await exchangeGoogleAuthorizationCode({
+          code: input.code ?? '',
+          redirectUri: input.redirectUri ?? '',
+          codeVerifier: input.codeVerifier,
+          clientIds: env.GOOGLE_CLIENT_IDS,
+          clientSecret: env.GOOGLE_CLIENT_SECRET,
+        }))
+      const googleUser = await verifyGoogleIdToken(idToken, env.GOOGLE_CLIENT_IDS)
+      const byGoogle = await adminUsers.findByGoogleSub(googleUser.googleSub)
+      const byEmail = await adminUsers.findByEmail(googleUser.email)
+
+      if (byGoogle) {
+        if (byGoogle.ativo === false) throw new AppError(401, 'Esta conta está desativada.')
+        if (byEmail && byEmail.id !== byGoogle.id) {
+          throw new AppError(409, 'Esta conta Google já está vinculada a outro usuário.')
+        }
+        const session = await issueAppSession(byGoogle, meta)
+        logger.audit(`[auth] login Google: ${session.user.email}`, {
+          ip: meta.ip,
+          status: 200,
+          actor: session.user.email,
+        })
+        return session
+      }
+
+      if (byEmail) {
+        if (byEmail.ativo === false) throw new AppError(401, 'Esta conta está desativada.')
+        const linked = (await adminUsers.linkGoogleSub(byEmail.id, googleUser.googleSub)) ?? byEmail
+        const session = await issueAppSession(linked, meta)
+        logger.audit(`[auth] login Google vinculado: ${session.user.email}`, {
+          ip: meta.ip,
+          status: 200,
+          actor: session.user.email,
+        })
+        return session
+      }
+
+      return {
+        needsProfile: true as const,
+        profileToken: signGoogleProfileToken(
+          {
+            googleSub: googleUser.googleSub,
+            email: googleUser.email,
+            name: googleUser.name,
+          },
+          env,
+        ),
+        name: googleUser.name,
+        email: googleUser.email,
+      }
+    },
+
+    async completeGoogleProfile(input: GoogleCompleteInput, meta: SessionMeta = {}) {
+      let profile
+      try {
+        profile = verifyGoogleProfileToken(input.profileToken, env)
+      } catch {
+        throw new AppError(401, 'Sessão do Google expirada. Entre de novo.')
+      }
+
+      const already = await adminUsers.findByGoogleSub(profile.googleSub)
+      if (already) {
+        if (already.ativo === false) throw new AppError(401, 'Esta conta está desativada.')
+        return issueAppSession(already, meta)
+      }
+
+      const emailTaken = await adminUsers.findByEmail(profile.email)
+      if (emailTaken) {
+        throw new AppError(409, 'Este e-mail já está cadastrado. Entre com e-mail e senha.')
+      }
+
+      let user: AdminUserRecord
+      try {
+        user = await adminUsers.createCommunity({
+          nome: profile.name,
+          email: profile.email,
+          passwordHash: null,
+          dataNascimento: input.birthDate,
+          cidade: input.city,
+          estado: input.state,
+          authProvider: 'google',
+          googleSub: profile.googleSub,
+        })
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new AppError(409, 'Este e-mail já está cadastrado.')
+        }
+        throw error
+      }
+
+      const session = await issueAppSession(user, meta)
+      logger.audit(`[auth] cadastro Google: ${session.user.email}`, {
+        ip: meta.ip,
+        status: 201,
         actor: session.user.email,
       })
       return session
@@ -203,6 +410,58 @@ export function createAuthService(
       }
     },
 
+    async refreshApp(refreshToken: string, meta: SessionMeta = {}): Promise<AuthSession> {
+      const stored = await sessions.findByRefreshHash(hashRefreshToken(refreshToken))
+
+      if (!stored) {
+        throw new AppError(401, 'Refresh token inválido.')
+      }
+
+      if (stored.revokedAt) {
+        await sessions.revokeAllForUser(stored.usuarioId)
+        throw new AppError(401, 'Refresh token inválido.')
+      }
+
+      if (stored.expiresAt.getTime() <= Date.now()) {
+        await sessions.revokeById(stored.id)
+        throw new AppError(401, 'Refresh token expirado.')
+      }
+
+      const user = await adminUsers.findById(stored.usuarioId)
+
+      if (!user || user.ativo === false) {
+        await sessions.revokeById(stored.id)
+        throw new AppError(401, 'Sessão inválida.')
+      }
+
+      const publicUser = toPublicUser(user)
+      const accessJti = createAccessTokenJti()
+      const nextRefreshToken = createRefreshToken()
+
+      await sessions.touch(
+        stored.id,
+        accessJti,
+        hashRefreshToken(nextRefreshToken),
+        durationFromNow(env.REFRESH_EXPIRES_IN),
+      )
+
+      const token = signAccessToken(
+        {
+          sub: publicUser.id,
+          email: publicUser.email,
+          role: publicUser.role,
+          jti: accessJti,
+        },
+        env,
+      )
+
+      return {
+        user: publicUser,
+        token,
+        refreshToken: nextRefreshToken,
+      }
+    },
+
     async logout(refreshToken: string, meta: SessionMeta = {}) {
       const stored = await sessions.findByRefreshHash(hashRefreshToken(refreshToken))
       if (!stored || stored.revokedAt) {
@@ -219,3 +478,12 @@ export function createAuthService(
 }
 
 export type AuthService = ReturnType<typeof createAuthService>
+
+function isUniqueViolation(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code: string }).code === '23505',
+  )
+}

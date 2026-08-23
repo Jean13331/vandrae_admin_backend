@@ -36,11 +36,20 @@ const envSchema = z
       .transform((value) => value === 'true' || value === '1'),
     HTTPS_KEY: z.string().optional().transform(emptyToUndefined),
     HTTPS_CERT: z.string().optional().transform(emptyToUndefined),
+    MOBILE_HTTP_PORT: z.coerce.number().int().positive().optional(),
     ADMIN_SEED_ID: z.string().min(1).default('admin-1'),
     ADMIN_SEED_NAME: z.string().min(1).default('Administrador'),
     ADMIN_SEED_EMAIL: z.string().optional().transform(emptyToUndefined),
     ADMIN_SEED_PASSWORD: z.string().optional().transform(emptyToUndefined),
     ADMIN_ALLOWED_EMAILS: emailListSchema,
+    GOOGLE_CLIENT_IDS: z
+      .string()
+      .optional()
+      .default('')
+      .transform((value) =>
+        [...new Set(value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean))],
+      ),
+    GOOGLE_CLIENT_SECRET: z.string().optional().transform(emptyToUndefined),
     DATABASE_URL: z.string().optional().transform(emptyToUndefined),
     DB_HOST: z.string().optional().transform(emptyToUndefined),
     DB_PORT: z.coerce.number().int().positive().default(5432),

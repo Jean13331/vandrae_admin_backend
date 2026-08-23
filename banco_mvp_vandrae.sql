@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS usuario (
     codigo INTEGER NOT NULL UNIQUE,
     nome VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
-    senha VARCHAR(255) NOT NULL,
+    senha VARCHAR(255),
     data_nascimento DATE NOT NULL,
     cidade VARCHAR(255) NOT NULL,
     estado VARCHAR(255) NOT NULL,
@@ -22,10 +22,18 @@ CREATE TABLE IF NOT EXISTS usuario (
     data_modificacao TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     role VARCHAR(20) NOT NULL DEFAULT 'USER',
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
+    auth_provider VARCHAR(20) NOT NULL DEFAULT 'password',
+    google_sub VARCHAR(255),
 
     CONSTRAINT chk_usuario_role
-        CHECK (role IN ('USER', 'ADMIN'))
+        CHECK (role IN ('USER', 'ADMIN')),
+    CONSTRAINT chk_usuario_auth_provider
+        CHECK (auth_provider IN ('password', 'google'))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_usuario_google_sub
+ON usuario(google_sub)
+WHERE google_sub IS NOT NULL;
 
 
 -- =========================================================
