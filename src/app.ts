@@ -75,20 +75,24 @@ export function createApp(
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", 'data:', 'https:'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+          workerSrc: ["'self'", 'blob:'],
+          connectSrc: ["'self'"],
           frameAncestors: ["'self'", env.CORS_ORIGIN],
+          upgradeInsecureRequests: null,
         },
       },
       crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
       frameguard: false,
     }),
   )
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || origin === env.CORS_ORIGIN) {
+        if (!origin || env.NODE_ENV !== 'production' || origin === env.CORS_ORIGIN) {
           callback(null, true)
           return
         }
@@ -97,7 +101,7 @@ export function createApp(
       credentials: true,
     }),
   )
-  app.use(express.json({ limit: '8mb' }))
+  app.use(express.json({ limit: '16mb' }))
   app.use((req, res, next) => {
     if (!req.path.includes('/photos/')) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')

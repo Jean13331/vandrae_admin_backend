@@ -85,12 +85,64 @@ export function createTrailsService(trails: TrailRepository) {
     },
 
     async create(input: Omit<CreateTrailInput, 'usuarioId'>, usuarioId: string, actorEmail?: string) {
-      const trail = await trails.create({ ...input, usuarioId })
+      const trail = await trails.create({ ...input, usuarioId, ativo: input.ativo ?? true })
       if (!trail) {
         throw new AppError(500, 'Não foi possível criar a trilha.')
       }
       logger.audit(`[trails] trilha ${trail.codigo} criada`, { actor: actorEmail, status: 201 })
       return withElevation(trail)
+    },
+
+    async createFromApp(
+      input: Omit<CreateTrailInput, 'usuarioId' | 'ativo'> & {
+        pontos?: CreateTrailPointInput[]
+        fotos?: Array<{
+          descricao?: string | null
+          contentType?: string
+          arquivo: string
+          pontosTrilhaId?: string | null
+        }>
+      },
+      usuarioId: string,
+      actorEmail?: string,
+    ) {
+      const trail = await trails.create({
+        usuarioId,
+        nome: input.nome,
+        descricao: input.descricao,
+        coordinates: input.coordinates,
+        ativo: false,
+      })
+      if (!trail) {
+        throw new AppError(500, 'Não foi possível criar a trilha.')
+      }
+
+      let current = trail
+      for (const point of input.pontos ?? []) {
+        const next = await trails.addPoint(current.id, point)
+        if (next) current = next
+      }
+      for (const photo of input.fotos ?? []) {
+        const decoded = decodeBase64Image(photo.arquivo)
+        const next = await trails.addPhoto(current.id, {
+          usuarioId,
+          descricao: photo.descricao,
+          contentType: decoded.contentType || photo.contentType || 'image/jpeg',
+          arquivo: decoded.buffer,
+          pontosTrilhaId: photo.pontosTrilhaId,
+        })
+        if (next) current = next
+      }
+
+      logger.audit(`[trails] trilha ${current.codigo} enviada por usuário (aguardando publicação)`, {
+        actor: actorEmail,
+        status: 201,
+      })
+      return withElevation(toAppPhotoUrls(current))
+    },
+
+    listMine(usuarioId: string) {
+      return trails.listByUser(usuarioId)
     },
 
     async addPoint(id: string, input: CreateTrailPointInput, actorEmail?: string) {

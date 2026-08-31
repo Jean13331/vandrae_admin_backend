@@ -433,6 +433,53 @@ export function createOpenApiSpec(env: Env) {
             401: { description: 'Token ausente ou inválido' },
           },
         },
+        post: {
+          tags: ['App Trails'],
+          summary: 'Envia uma trilha da comunidade para revisão',
+          description:
+            'Cria a trilha como inativa. Ela só aparece no mapa depois que um administrador publicar no painel.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['nome', 'trajeto'],
+                  properties: {
+                    nome: { type: 'string' },
+                    descricao: { type: 'string', nullable: true },
+                    trajeto: {
+                      type: 'array',
+                      description: 'Pares [longitude, latitude]',
+                      items: {
+                        type: 'array',
+                        items: { type: 'number' },
+                        minItems: 2,
+                        maxItems: 2,
+                      },
+                    },
+                    pontos: { type: 'array', items: { type: 'object' } },
+                    fotos: { type: 'array', items: { type: 'object' } },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: 'Trilha criada e aguardando publicação' },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/trails/mine': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Lista as trilhas enviadas pelo usuário logado',
+          responses: {
+            200: { description: 'Trilhas do usuário, inclusive não publicadas' },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
       },
       '/trails/{id}': {
         get: {

@@ -77,6 +77,7 @@ export type CreateTrailInput = {
   nome: string
   descricao?: string | null
   coordinates: number[][]
+  ativo?: boolean
 }
 
 export type CreateTrailPointInput = {
@@ -97,6 +98,7 @@ export type CreateTrailPhotoInput = {
 
 export interface TrailRepository {
   list(filters: ListTrailsFilters): Promise<TrailSummary[]>
+  listByUser(usuarioId: string): Promise<TrailSummary[]>
   listExplore(): Promise<TrailDetail[]>
   findById(id: string): Promise<TrailDetail | null>
   findPhoto(trailId: string, photoId: string): Promise<TrailPhotoFile | null>
@@ -263,6 +265,18 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
         [filters.q || null, filters.ativo ?? null],
       )
 
+      return result.rows.map(mapSummary)
+    },
+
+    async listByUser(usuarioId) {
+      const result = await pool.query<TrailRow>(
+        `${trailSelect}
+         FROM trilha t
+         INNER JOIN usuario u ON u.id = t.usuario_id
+         WHERE t.usuario_id = $1
+         ORDER BY t.data_cadastro DESC`,
+        [usuarioId],
+      )
       return result.rows.map(mapSummary)
     },
 
@@ -459,7 +473,7 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
       )
       const inserted = await pool.query<{ id: string }>(
         `INSERT INTO trilha (usuario_id, codigo, nome, descricao, trajeto, ativo)
-         VALUES ($1, $2, $3, $4, ST_GeogFromText($5), TRUE)
+         VALUES ($1, $2, $3, $4, ST_GeogFromText($5), $6)
          RETURNING id`,
         [
           input.usuarioId,
@@ -467,6 +481,7 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
           input.nome,
           input.descricao ?? null,
           `SRID=4326;LINESTRING(${line})`,
+          input.ativo ?? true,
         ],
       )
       const id = inserted.rows[0]?.id

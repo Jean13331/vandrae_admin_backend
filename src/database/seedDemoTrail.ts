@@ -339,8 +339,8 @@ const isDirectRun = process.argv[1]?.includes('seedDemoTrail')
 if (isDirectRun) {
   void (async () => {
     await import('dotenv/config')
-    const { loadEnv } = await import('../config/env')
-    const { connectDatabase } = await import('./index')
+    const { loadEnv } = await import('../config/env.js')
+    const { connectDatabase } = await import('./index.js')
     const env = loadEnv()
     const pool = await connectDatabase(env)
     await seedDemoTrail(pool)

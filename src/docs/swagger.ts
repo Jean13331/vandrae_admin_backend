@@ -23,6 +23,7 @@ export function setupSwagger(app: Express, env: Env) {
     <meta charset="UTF-8" />
     <title>Vandrae API</title>
     <link rel="stylesheet" href="/docs-assets/swagger-ui.css" />
+    <link rel="stylesheet" href="/docs-assets/index.css" />
     <style>
       html { box-sizing: border-box; overflow-y: scroll; }
       *, *::before, *::after { box-sizing: inherit; }
@@ -32,34 +33,44 @@ export function setupSwagger(app: Express, env: Env) {
   <body>
     <div id="swagger-ui"></div>
     <script src="/docs-assets/swagger-ui-bundle.js"></script>
+    <script src="/docs-assets/swagger-ui-standalone-preset.js"></script>
     <script>
-      let ui
-      ui = SwaggerUIBundle({
-        url: '/openapi',
-        dom_id: '#swagger-ui',
-        persistAuthorization: true,
-        responseInterceptor: (res) => {
-          try {
-            const isLogin = /\/auth\/login(?:\?|$)/.test(String(res.url || ''))
-            if (isLogin && res.status === 200 && res.text) {
-              const body = JSON.parse(res.text)
-              if (body.token) {
-                ui.authActions.authorize({
-                  bearerAuth: {
-                    name: 'bearerAuth',
-                    schema: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-                    value: body.token,
-                  },
-                })
+      window.onload = function () {
+        const ui = SwaggerUIBundle({
+          url: '/openapi',
+          dom_id: '#swagger-ui',
+          deepLinking: true,
+          persistAuthorization: true,
+          presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIStandalonePreset
+          ],
+          plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+          layout: 'StandaloneLayout',
+          responseInterceptor: (res) => {
+            try {
+              const url = String(res.url || '')
+              const isLogin = url.includes('/auth/login')
+              if (isLogin && res.status === 200 && res.text) {
+                const body = JSON.parse(res.text)
+                if (body.token) {
+                  ui.authActions.authorize({
+                    bearerAuth: {
+                      name: 'bearerAuth',
+                      schema: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+                      value: body.token,
+                    },
+                  })
+                }
               }
+            } catch (error) {
+              console.warn('[swagger] não foi possível aplicar o Bearer automaticamente', error)
             }
-          } catch (error) {
-            console.warn('[swagger] não foi possível aplicar o Bearer automaticamente', error)
-          }
-          return res
-        },
-      })
-      window.ui = ui
+            return res
+          },
+        })
+        window.ui = ui
+      }
     </script>
   </body>
 </html>`)

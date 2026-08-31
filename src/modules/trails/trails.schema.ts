@@ -19,12 +19,6 @@ const coordinatePairSchema = z
     message: 'Informe coordenadas no formato [longitude, latitude].',
   })
 
-export const createTrailSchema = z.object({
-  nome: z.string().trim().min(2, 'Informe o nome da trilha.'),
-  descricao: z.string().trim().nullable().optional(),
-  trajeto: z.array(coordinatePairSchema).min(2, 'Informe ao menos dois pontos do trajeto.'),
-})
-
 export const POINT_TYPES = [
   'CACHOEIRA',
   'MIRANTE',
@@ -36,6 +30,12 @@ export const POINT_TYPES = [
   'BANHEIRO',
   'PONTO_DE_AGUA',
 ] as const
+
+export const createTrailSchema = z.object({
+  nome: z.string().trim().min(2, 'Informe o nome da trilha.'),
+  descricao: z.string().trim().nullable().optional(),
+  trajeto: z.array(coordinatePairSchema).min(2, 'Informe ao menos dois pontos do trajeto.'),
+})
 
 export const createTrailPointSchema = z.object({
   tipo: z.enum(POINT_TYPES),
@@ -50,6 +50,11 @@ export const createTrailPhotoSchema = z.object({
   contentType: z.string().trim().min(3).default('image/jpeg'),
   arquivo: z.string().min(20, 'Informe a foto em base64.'),
   pontosTrilhaId: z.string().uuid().nullable().optional(),
+})
+
+export const createAppTrailSchema = createTrailSchema.extend({
+  pontos: z.array(createTrailPointSchema).max(30).optional().default([]),
+  fotos: z.array(createTrailPhotoSchema).max(6).optional().default([]),
 })
 
 export const updateTrailSchema = z

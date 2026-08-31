@@ -9,7 +9,7 @@ function requestPath(req: Request) {
 
 export function createAdminAuthGuard(requireAuth: RequestHandler): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'POST' && PUBLIC_POST_PATHS.has(requestPath(req))) {
+    if (req.method === 'OPTIONS' || (req.method === 'POST' && PUBLIC_POST_PATHS.has(requestPath(req)))) {
       next()
       return
     }

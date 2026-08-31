@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import { asyncHandler } from '../../lib/asyncHandler'
 import { AppError } from '../../lib/errors'
 import {
+  createAppTrailSchema,
   createTrailPhotoSchema,
   createTrailPointSchema,
   createTrailSchema,
@@ -26,6 +27,35 @@ export function createTrailsController(trailsService: TrailsService) {
     explore: asyncHandler(async (_req: Request, res: Response) => {
       const trails = await trailsService.listExplore()
       res.json({ trails })
+    }),
+
+    listMine: asyncHandler(async (req: Request, res: Response) => {
+      const usuarioId = req.appUser?.id
+      if (!usuarioId) {
+        throw new AppError(401, 'Sessão inválida.')
+      }
+      const trails = await trailsService.listMine(usuarioId)
+      res.json({ trails })
+    }),
+
+    createApp: asyncHandler(async (req: Request, res: Response) => {
+      const input = createAppTrailSchema.parse(req.body)
+      const usuarioId = req.appUser?.id
+      if (!usuarioId) {
+        throw new AppError(401, 'Sessão inválida.')
+      }
+      const trail = await trailsService.createFromApp(
+        {
+          nome: input.nome,
+          descricao: input.descricao,
+          coordinates: input.trajeto,
+          pontos: input.pontos,
+          fotos: input.fotos,
+        },
+        usuarioId,
+        req.appUser?.email,
+      )
+      res.status(201).json({ trail })
     }),
 
     exploreById: asyncHandler(async (req: Request, res: Response) => {
