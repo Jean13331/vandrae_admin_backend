@@ -26,6 +26,7 @@ const envSchema = z
     PORT: z.coerce.number().int().positive().default(3333),
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     CORS_ORIGIN: z.string().min(1).default('https://localhost:5173'),
+    PUBLIC_URL: z.string().optional().transform(emptyToUndefined),
     JWT_SECRET: z.string().min(16),
     JWT_EXPIRES_IN: z.string().min(1).default('15m'),
     REFRESH_EXPIRES_IN: z.string().min(1).default('7d'),

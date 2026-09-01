@@ -60,6 +60,12 @@ export async function loadHttpsOptions(env: Env) {
 }
 
 export function publicUrl(env: Env, host = 'localhost') {
+  const explicit = env.PUBLIC_URL?.replace(/\/$/, '')
+  if (explicit) return explicit
+
+  const fromRender = process.env.RENDER_EXTERNAL_URL?.replace(/\/$/, '')
+  if (fromRender) return fromRender
+
   const protocol = env.HTTPS ? 'https' : 'http'
   return `${protocol}://${host}:${env.PORT}`
 }

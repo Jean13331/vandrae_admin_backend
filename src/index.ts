@@ -37,8 +37,9 @@ async function bootstrap() {
   const dashboardService = createDashboardService(createDashboardRepository(pool))
   const app = createApp(env, adminUsers, dashboardService, pool)
   const lanHost = lanIPv4()
+  const useHttps = env.HTTPS && env.NODE_ENV !== 'production'
 
-  if (env.HTTPS) {
+  if (useHttps) {
     const httpsOptions = await loadHttpsOptions(env)
     await listenOnAllInterfaces(https.createServer(httpsOptions, app), env.PORT)
     logger.info(`[server] Vandrae admin API em ${publicUrl(env)}`)

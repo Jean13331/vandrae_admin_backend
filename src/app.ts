@@ -39,6 +39,10 @@ import type { AdminUserRepository } from './repositories/adminUser.repository'
 import type { DashboardService } from './modules/dashboard/dashboard.service'
 import type { Pool } from 'pg'
 
+function corsOrigins(env: Env) {
+  return env.CORS_ORIGIN.split(/[,;\s]+/).map((item) => item.trim()).filter(Boolean)
+}
+
 export function createApp(
   env: Env,
   adminUsers: AdminUserRepository,
@@ -80,7 +84,7 @@ export function createApp(
           imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
           workerSrc: ["'self'", 'blob:'],
           connectSrc: ["'self'"],
-          frameAncestors: ["'self'", env.CORS_ORIGIN],
+          frameAncestors: ["'self'", ...corsOrigins(env)],
           upgradeInsecureRequests: null,
         },
       },
@@ -92,7 +96,8 @@ export function createApp(
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || env.NODE_ENV !== 'production' || origin === env.CORS_ORIGIN) {
+        const allowed = corsOrigins(env)
+        if (!origin || env.NODE_ENV !== 'production' || allowed.includes(origin)) {
           callback(null, true)
           return
         }
