@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS usuario (
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
     auth_provider VARCHAR(20) NOT NULL DEFAULT 'password',
     google_sub VARCHAR(255),
+    foto BYTEA,
+    foto_content_type VARCHAR(100),
 
     CONSTRAINT chk_usuario_role
         CHECK (role IN ('USER', 'ADMIN')),
@@ -255,6 +257,82 @@ CREATE TABLE IF NOT EXISTS favorito (
 
 
 -- =========================================================
+-- AVISOS DA COMUNIDADE (não alteram o autor da trilha)
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS aviso_trilha (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trilha_id UUID NOT NULL,
+    usuario_id UUID NOT NULL,
+    tipo VARCHAR(50) NOT NULL,
+    descricao TEXT,
+    localizacao GEOGRAPHY(POINT, 4326) NOT NULL,
+    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+    status VARCHAR(20) NOT NULL DEFAULT 'ATIVO',
+    data_resolucao TIMESTAMPTZ,
+    resolvido_por_id UUID,
+    arquivo BYTEA,
+    content_type VARCHAR(100) DEFAULT 'image/jpeg',
+    data_cadastro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_aviso_trilha
+        FOREIGN KEY (trilha_id)
+        REFERENCES trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_aviso_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    CONSTRAINT chk_aviso_tipo
+        CHECK (
+            tipo IN (
+                'DESLIZAMENTO',
+                'ARVORE_CAIDA',
+                'RIO_CHEIO',
+                'TRILHA_FECHADA',
+                'PERIGO',
+                'OUTRO'
+            )
+        ),
+
+    CONSTRAINT chk_aviso_status
+        CHECK (status IN ('ATIVO', 'RESOLVIDO')),
+
+    CONSTRAINT fk_aviso_resolvido_por
+        FOREIGN KEY (resolvido_por_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS aviso_resolucao (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    aviso_trilha_id UUID NOT NULL,
+    usuario_id UUID NOT NULL,
+    data_cadastro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_aviso_resolucao_aviso
+        FOREIGN KEY (aviso_trilha_id)
+        REFERENCES aviso_trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_aviso_resolucao_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    CONSTRAINT uq_aviso_resolucao
+        UNIQUE (aviso_trilha_id, usuario_id)
+);
+
+
+-- =========================================================
 -- DENÚNCIAS
 -- =========================================================
 
@@ -262,6 +340,10 @@ CREATE TABLE IF NOT EXISTS denuncias (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     usuario_id UUID NOT NULL,
     trilha_id UUID NOT NULL,
+    alvo VARCHAR(20) NOT NULL DEFAULT 'TRILHA',
+    pontos_trilha_id UUID,
+    fotografia_id UUID,
+    aviso_trilha_id UUID,
     motivo VARCHAR(100) NOT NULL,
     descricao TEXT NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'PENDENTE',
@@ -287,7 +369,10 @@ CREATE TABLE IF NOT EXISTS denuncias (
                 'ACEITA',
                 'REJEITADA'
             )
-        )
+        ),
+
+    CONSTRAINT chk_denuncia_alvo
+        CHECK (alvo IN ('TRILHA', 'PONTO', 'FOTO', 'AVISO'))
 );
 
 
@@ -317,6 +402,45 @@ ON avaliacao(trilha_id);
 
 CREATE INDEX idx_denuncia_trilha
 ON denuncias(trilha_id);
+
+CREATE INDEX idx_aviso_trilha
+ON aviso_trilha(trilha_id);
+
+CREATE INDEX idx_aviso_trilha_localizacao
+ON aviso_trilha
+USING GIST (localizacao);
+
+
+-- =========================================================
+-- CONCLUSÕES DA TRILHA (usuário passou no início e chegou no fim)
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS trilha_conclusao (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trilha_id UUID NOT NULL,
+    usuario_id UUID NOT NULL,
+    data_inicio TIMESTAMPTZ,
+    data_fim TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    data_cadastro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_conclusao_trilha
+        FOREIGN KEY (trilha_id)
+        REFERENCES trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_conclusao_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    CONSTRAINT uq_trilha_conclusao_usuario
+        UNIQUE (usuario_id, trilha_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trilha_conclusao_trilha
+ON trilha_conclusao(trilha_id);
 
 
 -- =========================================================

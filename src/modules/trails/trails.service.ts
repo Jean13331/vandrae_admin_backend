@@ -2,9 +2,11 @@ import { AppError } from '../../lib/errors'
 import { lookupTrailElevation } from '../../lib/elevation'
 import { logger } from '../../lib/logger'
 import type {
+  CreateTrailAlertInput,
   CreateTrailInput,
   CreateTrailPhotoInput,
   CreateTrailPointInput,
+  CreateTrailReportInput,
   TrailDetail,
   TrailRepository,
   UpdateTrailInput,
@@ -20,6 +22,10 @@ function toAppPhotoUrls(trail: TrailDetail): TrailDetail {
     pontosDetalhe: trail.pontosDetalhe.map((point) => ({
       ...point,
       fotoUrl: point.fotoUrl?.replace(/^\/admin\/trails\//, '/trails/') ?? null,
+    })),
+    avisos: (trail.avisos ?? []).map((alert) => ({
+      ...alert,
+      fotoUrl: alert.fotoUrl?.replace(/^\/admin\/trails\//, '/trails/') ?? null,
     })),
   }
 }
@@ -65,7 +71,13 @@ export function createTrailsService(trails: TrailRepository) {
       if (!trail || !trail.ativo) {
         throw new AppError(404, 'Trilha não encontrada.')
       }
-      return withElevation(toAppPhotoUrls(trail))
+      return withElevation(
+        toAppPhotoUrls({
+          ...trail,
+          pontosDetalhe: trail.pontosDetalhe.filter((point) => point.ativo !== false),
+          avisos: (trail.avisos ?? []).filter((alert) => alert.ativo !== false),
+        }),
+      )
     },
 
     async getPhoto(trailId: string, photoId: string) {
@@ -80,6 +92,22 @@ export function createTrailsService(trails: TrailRepository) {
       const photo = await trails.findExplorePhoto(trailId, photoId)
       if (!photo) {
         throw new AppError(404, 'Foto não encontrada.')
+      }
+      return photo
+    },
+
+    async getAlertPhoto(trailId: string, alertId: string) {
+      const photo = await trails.findAlertPhoto(trailId, alertId)
+      if (!photo) {
+        throw new AppError(404, 'Foto do aviso não encontrada.')
+      }
+      return photo
+    },
+
+    async getExploreAlertPhoto(trailId: string, alertId: string) {
+      const photo = await trails.findExploreAlertPhoto(trailId, alertId)
+      if (!photo) {
+        throw new AppError(404, 'Foto do aviso não encontrada.')
       }
       return photo
     },
@@ -101,6 +129,7 @@ export function createTrailsService(trails: TrailRepository) {
           contentType?: string
           arquivo: string
           pontosTrilhaId?: string | null
+          pontoIndex?: number
         }>
       },
       usuarioId: string,
@@ -111,7 +140,7 @@ export function createTrailsService(trails: TrailRepository) {
         nome: input.nome,
         descricao: input.descricao,
         coordinates: input.coordinates,
-        ativo: false,
+        ativo: true,
       })
       if (!trail) {
         throw new AppError(500, 'Não foi possível criar a trilha.')
@@ -124,17 +153,20 @@ export function createTrailsService(trails: TrailRepository) {
       }
       for (const photo of input.fotos ?? []) {
         const decoded = decodeBase64Image(photo.arquivo)
+        const pontoId =
+          photo.pontosTrilhaId ||
+          (photo.pontoIndex != null ? current.pontosDetalhe[photo.pontoIndex]?.id : null)
         const next = await trails.addPhoto(current.id, {
           usuarioId,
           descricao: photo.descricao,
           contentType: decoded.contentType || photo.contentType || 'image/jpeg',
           arquivo: decoded.buffer,
-          pontosTrilhaId: photo.pontosTrilhaId,
+          pontosTrilhaId: pontoId,
         })
         if (next) current = next
       }
 
-      logger.audit(`[trails] trilha ${current.codigo} enviada por usuário (aguardando publicação)`, {
+      logger.audit(`[trails] trilha ${current.codigo} publicada pela comunidade`, {
         actor: actorEmail,
         status: 201,
       })
@@ -143,6 +175,18 @@ export function createTrailsService(trails: TrailRepository) {
 
     listMine(usuarioId: string) {
       return trails.listByUser(usuarioId)
+    },
+
+    listMyAlerts(usuarioId: string) {
+      return trails.listAlertsByUser(usuarioId)
+    },
+
+    listMyReports(usuarioId: string) {
+      return trails.listReportsByUser(usuarioId)
+    },
+
+    listMyCompletions(usuarioId: string) {
+      return trails.listCompletionsByUser(usuarioId)
     },
 
     async addPoint(id: string, input: CreateTrailPointInput, actorEmail?: string) {
@@ -187,14 +231,119 @@ export function createTrailsService(trails: TrailRepository) {
       return withElevation(trail)
     },
 
+    async createAlert(
+      id: string,
+      usuarioId: string,
+      input: Omit<CreateTrailAlertInput, 'usuarioId' | 'arquivo' | 'contentType'> & {
+        arquivo?: string | null
+        contentType?: string | null
+      },
+      actorEmail?: string,
+    ) {
+      let arquivo: Buffer | undefined
+      let contentType: string | undefined
+      if (input.arquivo) {
+        const decoded = decodeBase64Image(input.arquivo)
+        arquivo = decoded.buffer
+        contentType = decoded.contentType || input.contentType || 'image/jpeg'
+      }
+      const trail = await trails.addAlert(id, {
+        usuarioId,
+        tipo: input.tipo,
+        descricao: input.descricao,
+        lat: input.lat,
+        lng: input.lng,
+        arquivo,
+        contentType,
+      })
+      if (!trail) {
+        throw new AppError(404, 'Trilha não encontrada.')
+      }
+      logger.audit(`[trails] aviso ${input.tipo} na trilha ${trail.codigo}`, {
+        actor: actorEmail,
+        status: 201,
+      })
+      return toAppPhotoUrls({
+        ...trail,
+        pontosDetalhe: trail.pontosDetalhe.filter((point) => point.ativo !== false),
+        avisos: (trail.avisos ?? []).filter((alert) => alert.ativo !== false),
+      })
+    },
+
+    async resolveAlert(id: string, alertId: string, usuarioId: string, actorEmail?: string) {
+      const trail = await trails.resolveAlert(id, alertId, usuarioId)
+      if (!trail) {
+        throw new AppError(404, 'Trilha não encontrada.')
+      }
+      logger.audit(`[trails] aviso ${alertId} confirmado como resolvido na trilha ${trail.codigo}`, {
+        actor: actorEmail,
+        status: 200,
+      })
+      return toAppPhotoUrls({
+        ...trail,
+        pontosDetalhe: trail.pontosDetalhe.filter((point) => point.ativo !== false),
+        avisos: (trail.avisos ?? []).filter((alert) => alert.ativo !== false),
+      })
+    },
+
     async update(id: string, input: UpdateTrailInput) {
       const trail = await trails.update(id, input)
       if (!trail) {
         throw new AppError(404, 'Trilha não encontrada.')
       }
-
-      logger.info(`[trails] trilha ${trail.codigo} atualizada`)
       return withElevation(trail)
+    },
+
+    async complete(id: string, usuarioId: string, actorEmail?: string) {
+      const result = await trails.complete(id, usuarioId)
+      if (!result) {
+        throw new AppError(404, 'Trilha não encontrada.')
+      }
+      if (result.nova) {
+        logger.audit(`[trails] conclusão registrada na trilha`, {
+          actor: actorEmail,
+          status: 201,
+        })
+      }
+      return result
+    },
+
+    async listReviews(id: string, usuarioId?: string) {
+      const result = await trails.listReviews(id, usuarioId)
+      if (!result) {
+        throw new AppError(404, 'Trilha não encontrada.')
+      }
+      return result
+    },
+
+    async upsertReview(id: string, usuarioId: string, input: { nota: number; comentario?: string | null }, actorEmail?: string) {
+      const result = await trails.upsertReview({
+        trilhaId: id,
+        usuarioId,
+        nota: input.nota,
+        comentario: input.comentario,
+      })
+      if (!result) {
+        throw new AppError(404, 'Trilha não encontrada.')
+      }
+      logger.audit(`[trails] avaliação ${result.review.nota} na trilha`, {
+        actor: actorEmail,
+        status: 201,
+      })
+      return result
+    },
+
+    async createReport(trilhaId: string, usuarioId: string, input: Omit<CreateTrailReportInput, 'usuarioId' | 'trilhaId'>, actorEmail?: string) {
+      const report = await trails.createReport({
+        ...input,
+        usuarioId,
+        trilhaId,
+      })
+      logger.audit(`[trails] denúncia ${report.id} (${input.alvo})`, {
+        actor: actorEmail,
+        status: 201,
+      })
+      return report
     },
   }
 }

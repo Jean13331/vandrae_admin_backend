@@ -65,6 +65,7 @@ export function createOpenApiSpec(env: Env) {
             name: { type: 'string' },
             email: { type: 'string', format: 'email' },
             role: { type: 'string', enum: ['admin', 'user'] },
+            photoUrl: { type: 'string', nullable: true, example: '/auth/me/photo' },
           },
         },
         AppAuthSession: {
@@ -129,6 +130,21 @@ export function createOpenApiSpec(env: Env) {
             descricao: { type: 'string', nullable: true },
             comprimentoKm: { type: 'number', nullable: true },
             notaMedia: { type: 'number', nullable: true },
+            avaliacoes: {
+              type: 'integer',
+              description: 'Quantidade de avaliações visíveis',
+            },
+            avaliacoesRecentes: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/TrailReview' },
+            },
+            conclusoes: {
+              type: 'integer',
+              minimum: 0,
+              example: 3,
+              description:
+                'Quantos usuários únicos passaram pelo início e chegaram no fim. Cada usuário conta uma vez.',
+            },
             inicio: {
               type: 'object',
               nullable: true,
@@ -151,6 +167,99 @@ export function createOpenApiSpec(env: Env) {
             fotografias: {
               type: 'array',
               items: { $ref: '#/components/schemas/ExploreTrailPhoto' },
+            },
+            avisos: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  tipo: { type: 'string' },
+                  descricao: { type: 'string', nullable: true },
+                  lat: { type: 'number', nullable: true },
+                  lng: { type: 'number', nullable: true },
+                  status: { type: 'string', enum: ['ATIVO', 'RESOLVIDO'] },
+                  confirmacoes: { type: 'integer' },
+                  resolvidoEm: { type: 'string', format: 'date-time', nullable: true },
+                  fotoUrl: { type: 'string', nullable: true },
+                  autor: {
+                    type: 'object',
+                    properties: { nome: { type: 'string' } },
+                  },
+                  resolvidoPor: {
+                    type: 'object',
+                    nullable: true,
+                    properties: { nome: { type: 'string' } },
+                  },
+                },
+              },
+            },
+            autor: {
+              type: 'object',
+              nullable: true,
+              properties: { nome: { type: 'string' } },
+            },
+          },
+        },
+        TrailReview: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            nota: { type: 'integer', minimum: 1, maximum: 5 },
+            comentario: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            autor: {
+              type: 'object',
+              properties: { nome: { type: 'string' } },
+            },
+            minha: { type: 'boolean' },
+          },
+        },
+        TrailSummary: {
+          type: 'object',
+          description: 'Resumo da trilha no painel e em GET /trails/mine',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            codigo: { type: 'integer' },
+            nome: { type: 'string' },
+            descricao: { type: 'string', nullable: true },
+            cidade: { type: 'string', nullable: true },
+            estado: { type: 'string', nullable: true },
+            ativo: { type: 'boolean' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            autor: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                nome: { type: 'string' },
+                email: { type: 'string', format: 'email' },
+              },
+            },
+            comprimentoKm: { type: 'number', nullable: true },
+            pontos: { type: 'integer' },
+            fotos: { type: 'integer' },
+            denunciasPendentes: { type: 'integer' },
+            notaMedia: { type: 'number', nullable: true },
+            conclusoes: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Usuários únicos que passaram no início e chegaram no fim',
+            },
+          },
+        },
+        TrailCompletion: {
+          type: 'object',
+          required: ['conclusoes', 'nova'],
+          properties: {
+            conclusoes: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Total de usuários únicos que concluíram a trilha após este POST',
+            },
+            nova: {
+              type: 'boolean',
+              description: 'true se esta foi a primeira conclusão deste usuário nesta trilha',
             },
           },
         },
@@ -256,6 +365,35 @@ export function createOpenApiSpec(env: Env) {
               },
             },
             401: { description: 'Credenciais inválidas' },
+          },
+        },
+      },
+      '/auth/reset-password': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Redefine a senha com e-mail e data de nascimento',
+          description:
+            'Não envia e-mail. Confere o e-mail cadastrado e a data de nascimento, grava a nova senha e encerra as sessões. Contas só Google recebem 400 pedindo o login com Google.',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email', 'birthDate', 'password'],
+                  properties: {
+                    email: { type: 'string', format: 'email' },
+                    birthDate: { type: 'string', example: '15/03/1990' },
+                    password: { type: 'string', minLength: 6 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            204: { description: 'Senha atualizada' },
+            400: { description: 'E-mail, nascimento ou tipo de conta inválidos' },
           },
         },
       },
@@ -406,13 +544,91 @@ export function createOpenApiSpec(env: Env) {
             401: { description: 'Token ausente ou inválido' },
           },
         },
+        delete: {
+          tags: ['App Auth'],
+          summary: 'Exclui a conta do usuário logado',
+          description:
+            'Para o usuário a conta some. No banco ela só é inativada (`usuario.ativo = false`) e todas as sessões são revogadas. O e-mail não volta a ficar disponível.',
+          responses: {
+            204: { description: 'Conta inativada e sessões encerradas' },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/auth/me/photo': {
+        get: {
+          tags: ['App Auth'],
+          summary: 'Baixa a foto de perfil do usuário logado',
+          responses: {
+            200: {
+              description: 'Arquivo da foto',
+              content: {
+                'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Usuário ainda não tem foto de perfil' },
+          },
+        },
+        put: {
+          tags: ['App Auth'],
+          summary: 'Envia ou substitui a foto de perfil',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['arquivo'],
+                  properties: {
+                    arquivo: { type: 'string', description: 'Data URL ou base64 da foto' },
+                    contentType: { type: 'string', example: 'image/jpeg' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Foto salva',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { user: { $ref: '#/components/schemas/AppUser' } },
+                  },
+                },
+              },
+            },
+            400: { description: 'Arquivo inválido ou grande demais' },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+        delete: {
+          tags: ['App Auth'],
+          summary: 'Remove a foto de perfil',
+          responses: {
+            200: {
+              description: 'Foto removida',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { user: { $ref: '#/components/schemas/AppUser' } },
+                  },
+                },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
       },
       '/trails': {
         get: {
           tags: ['App Trails'],
           summary: 'Lista trilhas ativas para o mapa',
           description:
-            'Requer JWT do app. Inclui trajeto GeoJSON, início/fim, pontos de interesse e até 8 fotos ativas por trilha.',
+            'Requer JWT do app. Inclui trajeto GeoJSON, início/fim, pontos de interesse, avisos da comunidade, até 8 fotos ativas e `conclusoes` (usuários que passaram no início e chegaram no fim).',
           responses: {
             200: {
               description: 'Trilhas ativas',
@@ -435,9 +651,9 @@ export function createOpenApiSpec(env: Env) {
         },
         post: {
           tags: ['App Trails'],
-          summary: 'Envia uma trilha da comunidade para revisão',
+          summary: 'Publica uma trilha da comunidade',
           description:
-            'Cria a trilha como inativa. Ela só aparece no mapa depois que um administrador publicar no painel.',
+            'A trilha entra no mapa na hora. O autor original não muda depois. Se receber várias denúncias, ela é ocultada automaticamente.',
           requestBody: {
             required: true,
             content: {
@@ -466,7 +682,7 @@ export function createOpenApiSpec(env: Env) {
             },
           },
           responses: {
-            201: { description: 'Trilha criada e aguardando publicação' },
+            201: { description: 'Trilha criada e visível no mapa' },
             401: { description: 'Token ausente ou inválido' },
           },
         },
@@ -476,7 +692,83 @@ export function createOpenApiSpec(env: Env) {
           tags: ['App Trails'],
           summary: 'Lista as trilhas enviadas pelo usuário logado',
           responses: {
-            200: { description: 'Trilhas do usuário, inclusive não publicadas' },
+            200: {
+              description: 'Trilhas do usuário, inclusive as ocultas por denúncia. Inclui `conclusoes`.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      trails: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/TrailSummary' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/trails/mine/alerts': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Lista os avisos criados pelo usuário logado',
+          responses: {
+            200: { description: 'Avisos do usuário, inclusive resolvidos ou ocultos' },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/trails/mine/reports': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Lista as denúncias feitas pelo usuário logado',
+          responses: {
+            200: { description: 'Denúncias do usuário e o status de cada uma' },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/trails/mine/completions': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Lista as trilhas que o usuário logado já concluiu',
+          description:
+            'Lê `trilha_conclusao` do usuário. Cada trilha aparece uma vez, da mais recente para a mais antiga.',
+          responses: {
+            200: {
+              description: 'Trilhas concluídas, com a data em que o usuário chegou ao fim',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      trails: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string', format: 'uuid' },
+                            nome: { type: 'string' },
+                            descricao: { type: 'string', nullable: true },
+                            cidade: { type: 'string', nullable: true },
+                            estado: { type: 'string', nullable: true },
+                            ativo: { type: 'boolean' },
+                            comprimentoKm: { type: 'number', nullable: true },
+                            pontos: { type: 'integer' },
+                            fotos: { type: 'integer' },
+                            completedAt: { type: 'string', format: 'date-time' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
             401: { description: 'Token ausente ou inválido' },
           },
         },
@@ -494,9 +786,302 @@ export function createOpenApiSpec(env: Env) {
             },
           ],
           responses: {
-            200: { description: 'Trilha com pontos, fotos e perfil de elevação' },
+            200: {
+              description: 'Trilha com pontos, fotos, avisos, perfil de elevação e `conclusoes`',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      trail: { $ref: '#/components/schemas/ExploreTrail' },
+                    },
+                  },
+                },
+              },
+            },
             401: { description: 'Token ausente ou inválido' },
             404: { description: 'Trilha inativa ou não encontrada' },
+          },
+        },
+      },
+      '/trails/{id}/complete': {
+        post: {
+          tags: ['App Trails'],
+          summary: 'Registra que o usuário passou no início e chegou no fim da trilha',
+          description:
+            'Persiste em `trilha_conclusao`. Cada usuário conta uma vez (`UNIQUE usuario_id, trilha_id`). O app só chama depois de detectar GPS no início, sair dali e chegar no fim. Sem corpo na requisição.',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Já estava contabilizado (`nova: false`)',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/TrailCompletion' },
+                },
+              },
+            },
+            201: {
+              description: 'Conclusão nova registrada (`nova: true`)',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/TrailCompletion' },
+                },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Trilha inativa ou não encontrada' },
+          },
+        },
+      },
+      '/trails/{id}/reviews': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Lista avaliações visíveis da trilha',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Nota média, total e lista de avaliações',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      notaMedia: { type: 'number', nullable: true },
+                      avaliacoes: { type: 'integer' },
+                      reviews: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/TrailReview' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Trilha inativa ou não encontrada' },
+          },
+        },
+        post: {
+          tags: ['App Trails'],
+          summary: 'Avalia a trilha (cria ou atualiza a nota deste usuário)',
+          description: 'Cada usuário tem uma avaliação por trilha. Notas de 1 a 5. Comentário opcional.',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['nota'],
+                  properties: {
+                    nota: { type: 'integer', minimum: 1, maximum: 5 },
+                    comentario: { type: 'string', maxLength: 400, nullable: true },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: 'Avaliação salva',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      notaMedia: { type: 'number', nullable: true },
+                      avaliacoes: { type: 'integer' },
+                      review: { $ref: '#/components/schemas/TrailReview' },
+                      reviews: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/TrailReview' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Trilha inativa ou não encontrada' },
+          },
+        },
+      },
+      '/trails/{id}/reports': {
+        post: {
+          tags: ['App Trails'],
+          summary: 'Denuncia a trilha, um ponto, uma foto ou um aviso',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['alvo', 'motivo'],
+                  properties: {
+                    alvo: { type: 'string', enum: ['TRILHA', 'PONTO', 'FOTO', 'AVISO'] },
+                    motivo: {
+                      type: 'string',
+                      enum: [
+                        'Conteúdo impróprio',
+                        'Informação incorreta',
+                        'Local perigoso',
+                        'Spam',
+                        'Outro',
+                      ],
+                    },
+                    descricao: { type: 'string' },
+                    pontoId: { type: 'string', format: 'uuid' },
+                    fotoId: { type: 'string', format: 'uuid' },
+                    avisoId: { type: 'string', format: 'uuid' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: 'Denúncia registrada. Com várias denúncias o conteúdo sai do mapa.' },
+            409: { description: 'Já existe denúncia aberta deste conteúdo' },
+          },
+        },
+      },
+      '/trails/{id}/alerts': {
+        post: {
+          tags: ['App Trails'],
+          summary: 'Adiciona um aviso da comunidade na trilha',
+          description:
+            'Não altera o autor nem o cadastro da trilha. O aviso aparece na hora. Some do mapa se for denunciado ou se a comunidade confirmar que já passou.',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['tipo', 'lat', 'lng'],
+                  properties: {
+                    tipo: {
+                      type: 'string',
+                      enum: [
+                        'DESLIZAMENTO',
+                        'ARVORE_CAIDA',
+                        'RIO_CHEIO',
+                        'TRILHA_FECHADA',
+                        'PERIGO',
+                        'OUTRO',
+                      ],
+                    },
+                    descricao: { type: 'string', nullable: true },
+                    lat: { type: 'number' },
+                    lng: { type: 'number' },
+                    arquivo: {
+                      type: 'string',
+                      description: 'Foto opcional em base64 (data URL ou payload puro).',
+                    },
+                    contentType: { type: 'string', example: 'image/jpeg' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: 'Aviso publicado' },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Trilha inativa ou não encontrada' },
+          },
+        },
+      },
+      '/trails/{id}/alerts/{alertId}/resolve': {
+        post: {
+          tags: ['App Trails'],
+          summary: 'Confirma que o aviso já passou',
+          description:
+            'Não apaga o registro. Com 3 confirmações o aviso sai do mapa e fica no histórico como resolvido.',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+            {
+              name: 'alertId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: { description: 'Confirmação registrada' },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Trilha ou aviso não encontrado' },
+            409: { description: 'Aviso já resolvido ou usuário já confirmou' },
+          },
+        },
+      },
+      '/trails/{id}/alerts/{alertId}/photo': {
+        get: {
+          tags: ['App Trails'],
+          summary: 'Baixa a foto anexada ao aviso',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+            {
+              name: 'alertId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Imagem (jpeg/png)',
+              content: {
+                'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+                'image/png': { schema: { type: 'string', format: 'binary' } },
+              },
+            },
+            401: { description: 'Token ausente ou inválido' },
+            404: { description: 'Foto, aviso ou trilha não encontrada' },
           },
         },
       },
@@ -706,7 +1291,20 @@ export function createOpenApiSpec(env: Env) {
           ],
           responses: {
             200: {
-              description: 'Trilhas cadastradas',
+              description: 'Trilhas cadastradas, com `conclusoes` de quem passou no início e chegou no fim',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      trails: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/TrailSummary' },
+                      },
+                    },
+                  },
+                },
+              },
             },
             401: {
               description: 'Token ausente ou inválido',
@@ -760,7 +1358,37 @@ export function createOpenApiSpec(env: Env) {
           ],
           responses: {
             200: {
-              description: 'Trilha com pontos e fotos',
+              description: 'Trilha com pontos, fotos e `conclusoes`',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      trail: {
+                        allOf: [
+                          { $ref: '#/components/schemas/TrailSummary' },
+                          {
+                            type: 'object',
+                            properties: {
+                              inicio: {
+                                type: 'object',
+                                nullable: true,
+                                properties: { lat: { type: 'number' }, lng: { type: 'number' } },
+                              },
+                              fim: {
+                                type: 'object',
+                                nullable: true,
+                                properties: { lat: { type: 'number' }, lng: { type: 'number' } },
+                              },
+                              trajeto: { type: 'object', nullable: true },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
             },
             404: {
               description: 'Trilha não encontrada',
@@ -902,6 +1530,36 @@ export function createOpenApiSpec(env: Env) {
           },
         },
       },
+      '/admin/trails/{id}/alerts/{alertId}/photo': {
+        get: {
+          tags: ['Trails'],
+          summary: 'Baixa a foto anexada a um aviso',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+            {
+              name: 'alertId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Imagem (jpeg/png)',
+              content: {
+                'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+                'image/png': { schema: { type: 'string', format: 'binary' } },
+              },
+            },
+            404: { description: 'Foto do aviso não encontrada' },
+          },
+        },
+      },
       '/admin/reports': {
         get: {
           tags: ['Reports'],
@@ -924,7 +1582,7 @@ export function createOpenApiSpec(env: Env) {
       '/admin/reports/{id}': {
         patch: {
           tags: ['Reports'],
-          summary: 'Atualiza o status da denúncia. ACEITA oculta a trilha.',
+          summary: 'Atualiza o status da denúncia. ACEITA oculta a trilha, o ponto, a foto ou o aviso.',
           parameters: [
             {
               name: 'id',

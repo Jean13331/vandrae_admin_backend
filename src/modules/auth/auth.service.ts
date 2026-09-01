@@ -19,7 +19,7 @@ import {
   type AdminUserRepository,
 } from '../../repositories/adminUser.repository'
 import type { SessionRepository } from '../../repositories/session.repository'
-import type { GoogleCompleteInput, GoogleIdTokenInput, LoginInput, RegisterInput } from './auth.schema'
+import type { GoogleCompleteInput, GoogleIdTokenInput, LoginInput, RegisterInput, ResetPasswordInput, UpdateProfilePhotoInput } from './auth.schema'
 
 export type AuthSession = {
   user: AdminUser
@@ -202,6 +202,44 @@ export function createAuthService(
         actor: session.user.email,
       })
       return session
+    },
+
+    async resetPasswordApp(input: ResetPasswordInput, meta: SessionMeta = {}) {
+      const generic = 'Não foi possível redefinir a senha. Confira o e-mail e a data de nascimento.'
+      const user = await adminUsers.findByEmail(input.email)
+
+      if (!user || user.ativo === false) {
+        logger.audit(`[auth] redefinição recusada: ${input.email}`, {
+          ip: meta.ip,
+          status: 400,
+          actor: input.email,
+        })
+        throw new AppError(400, generic)
+      }
+
+      if (!user.passwordHash) {
+        throw new AppError(400, 'Esta conta entra com o Google. Use Continuar com Google.')
+      }
+
+      if (user.dataNascimento !== input.birthDate) {
+        logger.audit(`[auth] redefinição recusada (nascimento): ${input.email}`, {
+          ip: meta.ip,
+          status: 400,
+          actor: input.email,
+        })
+        throw new AppError(400, generic)
+      }
+
+      const updated = await adminUsers.setPassword(user.id, await hashPassword(input.password))
+      if (!updated) {
+        throw new AppError(400, generic)
+      }
+      await sessions.revokeAllForUser(user.id)
+      logger.audit(`[auth] senha redefinida: ${user.email}`, {
+        ip: meta.ip,
+        status: 204,
+        actor: user.email,
+      })
     },
 
     async registerApp(input: RegisterInput, meta: SessionMeta = {}): Promise<AuthSession> {
@@ -474,6 +512,52 @@ export function createAuthService(
         status: 204,
       })
     },
+
+    async deleteAccount(usuarioId: string, actorEmail?: string, meta: SessionMeta = {}) {
+      const user = await adminUsers.setAtivo(usuarioId, false)
+      if (!user) {
+        throw new AppError(404, 'Usuário não encontrado.')
+      }
+      await sessions.revokeAllForUser(usuarioId)
+      logger.audit(`[auth] conta inativada (exclusão pelo app): ${user.email}`, {
+        ip: meta.ip,
+        status: 204,
+        actor: actorEmail,
+      })
+    },
+
+    async getProfilePhoto(usuarioId: string) {
+      const photo = await adminUsers.findProfilePhoto(usuarioId)
+      if (!photo) {
+        throw new AppError(404, 'Você ainda não tem foto de perfil.')
+      }
+      return photo
+    },
+
+    async updateProfilePhoto(usuarioId: string, input: UpdateProfilePhotoInput, actorEmail?: string) {
+      const decoded = decodeProfilePhoto(input.arquivo, input.contentType)
+      const user = await adminUsers.setProfilePhoto(usuarioId, decoded.buffer, decoded.contentType)
+      if (!user) {
+        throw new AppError(404, 'Usuário não encontrado.')
+      }
+      logger.audit('[auth] foto de perfil atualizada', {
+        actor: actorEmail,
+        status: 200,
+      })
+      return toPublicUser(user)
+    },
+
+    async clearProfilePhoto(usuarioId: string, actorEmail?: string) {
+      const user = await adminUsers.clearProfilePhoto(usuarioId)
+      if (!user) {
+        throw new AppError(404, 'Usuário não encontrado.')
+      }
+      logger.audit('[auth] foto de perfil removida', {
+        actor: actorEmail,
+        status: 200,
+      })
+      return toPublicUser(user)
+    },
   }
 }
 
@@ -486,4 +570,24 @@ function isUniqueViolation(error: unknown) {
       'code' in error &&
       (error as { code: string }).code === '23505',
   )
+}
+
+const MAX_PROFILE_PHOTO_BYTES = 2 * 1024 * 1024
+const PROFILE_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'])
+
+function decodeProfilePhoto(arquivo: string, contentType?: string) {
+  const match = arquivo.trim().match(/^data:([^;]+);base64,(.+)$/s)
+  const payload = match?.[2] ?? arquivo.replace(/\s/g, '')
+  const buffer = Buffer.from(payload, 'base64')
+  if (!buffer.length) {
+    throw new AppError(400, 'A foto enviada é inválida.')
+  }
+  if (buffer.length > MAX_PROFILE_PHOTO_BYTES) {
+    throw new AppError(400, 'A foto deve ter no máximo 2 MB.')
+  }
+  const type = (match?.[1] || contentType || 'image/jpeg').toLowerCase()
+  if (!PROFILE_PHOTO_TYPES.has(type)) {
+    throw new AppError(400, 'Use uma foto JPEG, PNG ou WEBP.')
+  }
+  return { buffer, contentType: type }
 }

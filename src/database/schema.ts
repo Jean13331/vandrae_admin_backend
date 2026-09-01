@@ -102,4 +102,172 @@ BEGIN
   END IF;
 END $$`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_usuario_google_sub ON usuario(google_sub) WHERE google_sub IS NOT NULL`,
+  `DO $$
+BEGIN
+  IF to_regclass('public.trilha') IS NOT NULL AND to_regclass('public.usuario') IS NOT NULL THEN
+    CREATE TABLE IF NOT EXISTS aviso_trilha (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      trilha_id UUID NOT NULL,
+      usuario_id UUID NOT NULL,
+      tipo VARCHAR(50) NOT NULL,
+      descricao TEXT,
+      localizacao GEOGRAPHY(POINT, 4326) NOT NULL,
+      ativo BOOLEAN NOT NULL DEFAULT TRUE,
+      data_cadastro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_aviso_trilha
+        FOREIGN KEY (trilha_id)
+        REFERENCES trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT fk_aviso_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+      CONSTRAINT chk_aviso_tipo
+        CHECK (
+          tipo IN (
+            'DESLIZAMENTO',
+            'ARVORE_CAIDA',
+            'RIO_CHEIO',
+            'TRILHA_FECHADA',
+            'PERIGO',
+            'OUTRO'
+          )
+        )
+    );
+  END IF;
+  IF to_regclass('public.aviso_trilha') IS NOT NULL THEN
+    ALTER TABLE aviso_trilha ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'ATIVO';
+    ALTER TABLE aviso_trilha ADD COLUMN IF NOT EXISTS data_resolucao TIMESTAMPTZ;
+    ALTER TABLE aviso_trilha ADD COLUMN IF NOT EXISTS resolvido_por_id UUID;
+    ALTER TABLE aviso_trilha ADD COLUMN IF NOT EXISTS arquivo BYTEA;
+    ALTER TABLE aviso_trilha ADD COLUMN IF NOT EXISTS content_type VARCHAR(100) DEFAULT 'image/jpeg';
+    ALTER TABLE aviso_trilha DROP CONSTRAINT IF EXISTS chk_aviso_status;
+    ALTER TABLE aviso_trilha
+      ADD CONSTRAINT chk_aviso_status
+      CHECK (status IN ('ATIVO', 'RESOLVIDO'));
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_aviso_resolvido_por') THEN
+      ALTER TABLE aviso_trilha
+        ADD CONSTRAINT fk_aviso_resolvido_por
+        FOREIGN KEY (resolvido_por_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL;
+    END IF;
+    CREATE TABLE IF NOT EXISTS aviso_resolucao (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      aviso_trilha_id UUID NOT NULL,
+      usuario_id UUID NOT NULL,
+      data_cadastro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_aviso_resolucao_aviso
+        FOREIGN KEY (aviso_trilha_id)
+        REFERENCES aviso_trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT fk_aviso_resolucao_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT
+    );
+  END IF;
+  IF to_regclass('public.pontos_trilha') IS NOT NULL THEN
+    ALTER TABLE pontos_trilha ADD COLUMN IF NOT EXISTS ativo BOOLEAN NOT NULL DEFAULT TRUE;
+  END IF;
+  IF to_regclass('public.denuncias') IS NOT NULL THEN
+    ALTER TABLE denuncias ADD COLUMN IF NOT EXISTS alvo VARCHAR(20) NOT NULL DEFAULT 'TRILHA';
+    ALTER TABLE denuncias ADD COLUMN IF NOT EXISTS pontos_trilha_id UUID;
+    ALTER TABLE denuncias ADD COLUMN IF NOT EXISTS fotografia_id UUID;
+    ALTER TABLE denuncias ADD COLUMN IF NOT EXISTS aviso_trilha_id UUID;
+    ALTER TABLE denuncias DROP CONSTRAINT IF EXISTS chk_denuncia_alvo;
+    ALTER TABLE denuncias
+      ADD CONSTRAINT chk_denuncia_alvo
+      CHECK (alvo IN ('TRILHA', 'PONTO', 'FOTO', 'AVISO'));
+    IF to_regclass('public.pontos_trilha') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_denuncia_ponto') THEN
+      ALTER TABLE denuncias
+        ADD CONSTRAINT fk_denuncia_ponto
+        FOREIGN KEY (pontos_trilha_id)
+        REFERENCES pontos_trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL;
+    END IF;
+    IF to_regclass('public.fotografia') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_denuncia_foto') THEN
+      ALTER TABLE denuncias
+        ADD CONSTRAINT fk_denuncia_foto
+        FOREIGN KEY (fotografia_id)
+        REFERENCES fotografia(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL;
+    END IF;
+    IF to_regclass('public.aviso_trilha') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_denuncia_aviso') THEN
+      ALTER TABLE denuncias
+        ADD CONSTRAINT fk_denuncia_aviso
+        FOREIGN KEY (aviso_trilha_id)
+        REFERENCES aviso_trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL;
+    END IF;
+  END IF;
+END $$`,
+  `DO $$
+BEGIN
+  IF to_regclass('public.aviso_trilha') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_aviso_trilha ON aviso_trilha(trilha_id);
+    CREATE INDEX IF NOT EXISTS idx_aviso_trilha_localizacao ON aviso_trilha USING GIST (localizacao);
+  END IF;
+  IF to_regclass('public.aviso_resolucao') IS NOT NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_aviso_resolucao
+      ON aviso_resolucao (aviso_trilha_id, usuario_id);
+  END IF;
+END $$`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_denuncia_trilha_aberta
+     ON denuncias (usuario_id, trilha_id)
+     WHERE alvo = 'TRILHA' AND status IN ('PENDENTE', 'EM_ANALISE')`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_denuncia_ponto_aberta
+     ON denuncias (usuario_id, pontos_trilha_id)
+     WHERE alvo = 'PONTO' AND pontos_trilha_id IS NOT NULL AND status IN ('PENDENTE', 'EM_ANALISE')`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_denuncia_foto_aberta
+     ON denuncias (usuario_id, fotografia_id)
+     WHERE alvo = 'FOTO' AND fotografia_id IS NOT NULL AND status IN ('PENDENTE', 'EM_ANALISE')`,
+  `DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'denuncias' AND column_name = 'aviso_trilha_id'
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_denuncia_aviso_aberta
+      ON denuncias (usuario_id, aviso_trilha_id)
+      WHERE alvo = 'AVISO' AND aviso_trilha_id IS NOT NULL AND status IN ('PENDENTE', 'EM_ANALISE');
+  END IF;
+  IF to_regclass('public.trilha') IS NOT NULL AND to_regclass('public.usuario') IS NOT NULL THEN
+    CREATE TABLE IF NOT EXISTS trilha_conclusao (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      trilha_id UUID NOT NULL,
+      usuario_id UUID NOT NULL,
+      data_inicio TIMESTAMPTZ,
+      data_fim TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      data_cadastro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_conclusao_trilha
+        FOREIGN KEY (trilha_id)
+        REFERENCES trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT fk_conclusao_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+      CONSTRAINT uq_trilha_conclusao_usuario UNIQUE (usuario_id, trilha_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_trilha_conclusao_trilha ON trilha_conclusao(trilha_id);
+  END IF;
+  IF to_regclass('public.usuario') IS NOT NULL THEN
+    ALTER TABLE usuario ADD COLUMN IF NOT EXISTS foto BYTEA;
+    ALTER TABLE usuario ADD COLUMN IF NOT EXISTS foto_content_type VARCHAR(100);
+  END IF;
+END $$`,
 ]

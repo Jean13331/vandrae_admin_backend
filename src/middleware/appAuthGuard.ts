@@ -3,6 +3,7 @@ import type { RequestHandler } from 'express'
 
 const PUBLIC_POST_PATHS = new Set([
   '/auth/login',
+  '/auth/reset-password',
   '/auth/register',
   '/auth/google',
   '/auth/google/complete',

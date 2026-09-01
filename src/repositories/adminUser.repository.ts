@@ -13,6 +13,7 @@ export type AdminUser = {
   estado?: string
   ativo?: boolean
   createdAt?: string
+  photoUrl?: string | null
 }
 
 export type AdminUserRecord = AdminUser & {
@@ -39,7 +40,11 @@ export interface AdminUserRepository {
   createCommunity(input: CreateUsuarioInput): Promise<AdminUserRecord>
   linkGoogleSub(id: string, googleSub: string): Promise<AdminUserRecord | null>
   setAtivo(id: string, ativo: boolean): Promise<AdminUser | null>
+  setPassword(id: string, passwordHash: string): Promise<AdminUserRecord | null>
   findDetail(id: string): Promise<CommunityUserDetail | null>
+  findProfilePhoto(id: string): Promise<{ arquivo: Buffer; contentType: string } | null>
+  setProfilePhoto(id: string, arquivo: Buffer, contentType: string): Promise<AdminUserRecord | null>
+  clearProfilePhoto(id: string): Promise<AdminUserRecord | null>
 }
 
 export type CommunityUserDetail = AdminUser & {
@@ -57,6 +62,7 @@ export function toPublicUser(record: AdminUserRecord): AdminUser {
     name: record.name,
     email: record.email,
     role: record.role,
+    photoUrl: record.photoUrl ?? null,
   }
 }
 
@@ -81,6 +87,7 @@ type UsuarioRow = {
   data_cadastro: Date | string
   role: string
   ativo: boolean
+  tem_foto?: boolean
 }
 
 function toDateOnly(value: Date | string) {
@@ -100,6 +107,7 @@ function mapPublicUser(row: UsuarioRow): AdminUser {
     estado: row.estado,
     ativo: row.ativo,
     createdAt: new Date(row.data_cadastro).toISOString(),
+    photoUrl: row.tem_foto ? '/auth/me/photo' : null,
   }
 }
 
@@ -112,8 +120,13 @@ function mapUserRecord(row: UsuarioRow): AdminUserRecord {
 
 const usuarioSelect = `
   SELECT id, codigo, nome, email, senha, data_nascimento, cidade, estado,
-         data_cadastro, role, ativo
+         data_cadastro, role, ativo, (foto IS NOT NULL) AS tem_foto
   FROM usuario
+`
+
+const usuarioReturning = `
+  id, codigo, nome, email, senha, data_nascimento, cidade, estado,
+  data_cadastro, role, ativo, (foto IS NOT NULL) AS tem_foto
 `
 
 export function createPostgresAdminUserRepository(pool: Pool): AdminUserRepository {
@@ -170,8 +183,7 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
             codigo, nome, email, senha, data_nascimento, cidade, estado, role, ativo
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'ADMIN', TRUE)
-         RETURNING id, codigo, nome, email, senha, data_nascimento, cidade, estado,
-                   data_cadastro, role, ativo`,
+         RETURNING ${usuarioReturning.trim()}`,
         [
           codigo,
           input.nome,
@@ -197,8 +209,7 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
             auth_provider, google_sub
          )
          VALUES ($1, $2, $3, $4, $5::date, $6, $7, 'USER', TRUE, $8, $9)
-         RETURNING id, codigo, nome, email, senha, data_nascimento, cidade, estado,
-                   data_cadastro, role, ativo`,
+         RETURNING ${usuarioReturning.trim()}`,
         [
           codigo,
           input.nome,
@@ -219,8 +230,7 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
         `UPDATE usuario
          SET google_sub = $2, data_modificacao = CURRENT_TIMESTAMP
          WHERE id = $1
-         RETURNING id, codigo, nome, email, senha, data_nascimento, cidade, estado,
-                   data_cadastro, role, ativo`,
+         RETURNING ${usuarioReturning.trim()}`,
         [id, googleSub],
       )
       return result.rows[0] ? mapUserRecord(result.rows[0]) : null
@@ -230,11 +240,55 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
         `UPDATE usuario
          SET ativo = $2, data_modificacao = CURRENT_TIMESTAMP
          WHERE id = $1
-         RETURNING id, codigo, nome, email, senha, data_nascimento, cidade, estado,
-                   data_cadastro, role, ativo`,
+         RETURNING ${usuarioReturning.trim()}`,
         [id, ativo],
       )
       return result.rows[0] ? mapPublicUser(result.rows[0]) : null
+    },
+    async setPassword(id, passwordHash) {
+      const result = await pool.query<UsuarioRow>(
+        `UPDATE usuario
+         SET senha = $2, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING ${usuarioReturning.trim()}`,
+        [id, passwordHash],
+      )
+      return result.rows[0] ? mapUserRecord(result.rows[0]) : null
+    },
+    async findProfilePhoto(id) {
+      const result = await pool.query<{ arquivo: Buffer; content_type: string | null }>(
+        `SELECT foto AS arquivo, COALESCE(foto_content_type, 'image/jpeg') AS content_type
+         FROM usuario
+         WHERE id = $1 AND foto IS NOT NULL
+         LIMIT 1`,
+        [id],
+      )
+      const row = result.rows[0]
+      if (!row?.arquivo) return null
+      return {
+        arquivo: row.arquivo,
+        contentType: row.content_type || 'image/jpeg',
+      }
+    },
+    async setProfilePhoto(id, arquivo, contentType) {
+      const result = await pool.query<UsuarioRow>(
+        `UPDATE usuario
+         SET foto = $2, foto_content_type = $3, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING ${usuarioReturning.trim()}`,
+        [id, arquivo, contentType],
+      )
+      return result.rows[0] ? mapUserRecord(result.rows[0]) : null
+    },
+    async clearProfilePhoto(id) {
+      const result = await pool.query<UsuarioRow>(
+        `UPDATE usuario
+         SET foto = NULL, foto_content_type = NULL, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING ${usuarioReturning.trim()}`,
+        [id],
+      )
+      return result.rows[0] ? mapUserRecord(result.rows[0]) : null
     },
     async findDetail(id) {
       const user = await this.findById(id)

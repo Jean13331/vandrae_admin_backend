@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express'
 import { asyncHandler } from '../../lib/asyncHandler'
+import { AppError } from '../../lib/errors'
 import { clientIp } from '../../middleware/requestLogger'
-import { googleCompleteSchema, googleLoginSchema, loginSchema, logoutSchema, refreshSchema, registerSchema } from './auth.schema'
+import { googleCompleteSchema, googleLoginSchema, loginSchema, logoutSchema, refreshSchema, registerSchema, resetPasswordSchema, updateProfilePhotoSchema } from './auth.schema'
 import type { AuthService } from './auth.service'
 
 function sessionMeta(req: Request) {
@@ -41,6 +42,12 @@ export function createAuthController(authService: AuthService) {
       res.json(session)
     }),
 
+    resetPasswordApp: asyncHandler(async (req: Request, res: Response) => {
+      const input = resetPasswordSchema.parse(req.body)
+      await authService.resetPasswordApp(input, sessionMeta(req))
+      res.status(204).send()
+    }),
+
     registerApp: asyncHandler(async (req: Request, res: Response) => {
       const input = registerSchema.parse(req.body)
       const session = await authService.registerApp(input, sessionMeta(req))
@@ -67,6 +74,45 @@ export function createAuthController(authService: AuthService) {
 
     meApp: asyncHandler(async (req: Request, res: Response) => {
       res.json({ user: req.appUser })
+    }),
+
+    getMyPhotoApp: asyncHandler(async (req: Request, res: Response) => {
+      const usuarioId = req.appUser?.id
+      if (!usuarioId) {
+        throw new AppError(401, 'Sessão inválida.')
+      }
+      const photo = await authService.getProfilePhoto(usuarioId)
+      res.setHeader('Content-Type', photo.contentType)
+      res.setHeader('Cache-Control', 'private, no-cache')
+      res.send(photo.arquivo)
+    }),
+
+    updateMyPhotoApp: asyncHandler(async (req: Request, res: Response) => {
+      const usuarioId = req.appUser?.id
+      if (!usuarioId) {
+        throw new AppError(401, 'Sessão inválida.')
+      }
+      const input = updateProfilePhotoSchema.parse(req.body)
+      const user = await authService.updateProfilePhoto(usuarioId, input, req.appUser?.email)
+      res.json({ user })
+    }),
+
+    deleteMyPhotoApp: asyncHandler(async (req: Request, res: Response) => {
+      const usuarioId = req.appUser?.id
+      if (!usuarioId) {
+        throw new AppError(401, 'Sessão inválida.')
+      }
+      const user = await authService.clearProfilePhoto(usuarioId, req.appUser?.email)
+      res.json({ user })
+    }),
+
+    deleteMeApp: asyncHandler(async (req: Request, res: Response) => {
+      const usuarioId = req.appUser?.id
+      if (!usuarioId) {
+        throw new AppError(401, 'Sessão inválida.')
+      }
+      await authService.deleteAccount(usuarioId, req.appUser?.email, sessionMeta(req))
+      res.status(204).send()
     }),
   }
 }

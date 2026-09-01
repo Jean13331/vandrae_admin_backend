@@ -115,6 +115,17 @@ export const googleLoginSchema = z
 
 export const googleIdTokenSchema = googleLoginSchema
 
+export const resetPasswordSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .email('Informe um e-mail válido.')
+    .max(255)
+    .transform((value) => value.toLowerCase()),
+  birthDate: birthDateSchema,
+  password: z.string().min(6, 'A senha deve ter pelo menos 6 caracteres.').max(72),
+})
+
 export const googleCompleteSchema = z.object({
   profileToken: z.string().min(20, 'Sessão do Google expirada. Entre de novo.'),
   birthDate: birthDateSchema,
@@ -128,9 +139,16 @@ export const googleCompleteSchema = z.object({
     }),
 })
 
+export const updateProfilePhotoSchema = z.object({
+  arquivo: z.string().min(20, 'Informe a foto em base64.'),
+  contentType: z.string().trim().min(3).optional(),
+})
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type RefreshInput = z.infer<typeof refreshSchema>
 export type LogoutInput = z.infer<typeof logoutSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type GoogleIdTokenInput = z.infer<typeof googleLoginSchema>
 export type GoogleCompleteInput = z.infer<typeof googleCompleteSchema>
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>
+export type UpdateProfilePhotoInput = z.infer<typeof updateProfilePhotoSchema>
