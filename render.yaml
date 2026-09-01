@@ -3,8 +3,8 @@ services:
     name: vandrae-admin-backend
     runtime: node
     plan: free
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: npm start
+    buildCommand: npm install && npm run build
+    startCommand: node server.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
