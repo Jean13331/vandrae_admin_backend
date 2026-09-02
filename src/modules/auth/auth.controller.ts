@@ -2,7 +2,8 @@ import type { Request, Response } from 'express'
 import { asyncHandler } from '../../lib/asyncHandler'
 import { AppError } from '../../lib/errors'
 import { clientIp } from '../../middleware/requestLogger'
-import { googleCompleteSchema, googleLoginSchema, loginSchema, logoutSchema, refreshSchema, registerSchema, resetPasswordSchema, updateProfilePhotoSchema } from './auth.schema'
+import { passwordResetFormHtml, passwordResetResultHtml } from '../../lib/passwordResetPage'
+import { googleCompleteSchema, googleLoginSchema, loginSchema, logoutSchema, refreshSchema, registerSchema, forgotPasswordSchema, resetPasswordSchema, updateProfilePhotoSchema } from './auth.schema'
 import type { AuthService } from './auth.service'
 
 function sessionMeta(req: Request) {
@@ -10,6 +11,12 @@ function sessionMeta(req: Request) {
     ip: clientIp(req),
     userAgent: req.header('user-agent') ?? undefined,
   }
+}
+
+function wantsHtmlReset(req: Request) {
+  const type = req.header('content-type') ?? ''
+  const accept = req.header('accept') ?? ''
+  return type.includes('application/x-www-form-urlencoded') || accept.includes('text/html')
 }
 
 export function createAuthController(authService: AuthService) {
@@ -42,9 +49,70 @@ export function createAuthController(authService: AuthService) {
       res.json(session)
     }),
 
+    forgotPasswordApp: asyncHandler(async (req: Request, res: Response) => {
+      const input = forgotPasswordSchema.parse(req.body)
+      await authService.requestPasswordReset(input, sessionMeta(req))
+      res.status(204).send()
+    }),
+
+    showResetPasswordPage: asyncHandler(async (req: Request, res: Response) => {
+      const token = typeof req.query.token === 'string' ? req.query.token.trim() : ''
+      if (!token) {
+        res
+          .status(400)
+          .type('html')
+          .send(passwordResetResultHtml(false, 'Link inválido. Peça um novo e-mail no app.'))
+        return
+      }
+      res.type('html').send(passwordResetFormHtml({ token }))
+    }),
+
     resetPasswordApp: asyncHandler(async (req: Request, res: Response) => {
-      const input = resetPasswordSchema.parse(req.body)
-      await authService.resetPasswordApp(input, sessionMeta(req))
+      const html = wantsHtmlReset(req)
+      const parsed = resetPasswordSchema.safeParse(req.body)
+      if (!parsed.success) {
+        const message = parsed.error.issues[0]?.message ?? 'Dados inválidos.'
+        if (html) {
+          const token = typeof req.body?.token === 'string' ? req.body.token : ''
+          res.status(400).type('html').send(passwordResetFormHtml({ token, error: message }))
+          return
+        }
+        throw parsed.error
+      }
+
+      if (html && req.body?.password !== req.body?.confirm) {
+        res
+          .status(400)
+          .type('html')
+          .send(passwordResetFormHtml({ token: parsed.data.token, error: 'As senhas não coincidem.' }))
+        return
+      }
+
+      try {
+        await authService.resetPasswordWithToken(parsed.data, sessionMeta(req))
+      } catch (error) {
+        if (html && error instanceof AppError) {
+          res
+            .status(error.statusCode)
+            .type('html')
+            .send(passwordResetFormHtml({ token: parsed.data.token, error: error.message }))
+          return
+        }
+        throw error
+      }
+
+      if (html) {
+        res
+          .type('html')
+          .send(
+            passwordResetResultHtml(
+              true,
+              'Sua senha foi atualizada. Volte ao app e entre com o e-mail e a senha nova.',
+            ),
+          )
+        return
+      }
+
       res.status(204).send()
     }),
 

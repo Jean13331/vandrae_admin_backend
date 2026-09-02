@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS usuario (
     google_sub VARCHAR(255),
     foto BYTEA,
     foto_content_type VARCHAR(100),
+    senha_reset_hash VARCHAR(64),
+    senha_reset_expira TIMESTAMPTZ,
 
     CONSTRAINT chk_usuario_role
         CHECK (role IN ('USER', 'ADMIN')),
@@ -36,6 +38,10 @@ CREATE TABLE IF NOT EXISTS usuario (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_usuario_google_sub
 ON usuario(google_sub)
 WHERE google_sub IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS usuario_senha_reset_hash_idx
+ON usuario(senha_reset_hash)
+WHERE senha_reset_hash IS NOT NULL;
 
 
 -- =========================================================

@@ -107,6 +107,7 @@ export function createApp(
     }),
   )
   app.use(express.json({ limit: '16mb' }))
+  app.use(express.urlencoded({ extended: false }))
   app.use((req, res, next) => {
     if (!req.path.includes('/photos/') && !req.path.endsWith('/me/photo')) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')

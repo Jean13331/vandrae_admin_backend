@@ -115,14 +115,17 @@ export const googleLoginSchema = z
 
 export const googleIdTokenSchema = googleLoginSchema
 
-export const resetPasswordSchema = z.object({
+export const forgotPasswordSchema = z.object({
   email: z
     .string()
     .trim()
     .email('Informe um e-mail válido.')
     .max(255)
     .transform((value) => value.toLowerCase()),
-  birthDate: birthDateSchema,
+})
+
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(20, 'Link de recuperação inválido ou expirado.').max(200),
   password: z.string().min(6, 'A senha deve ter pelo menos 6 caracteres.').max(72),
 })
 
@@ -151,4 +154,5 @@ export type RegisterInput = z.infer<typeof registerSchema>
 export type GoogleIdTokenInput = z.infer<typeof googleLoginSchema>
 export type GoogleCompleteInput = z.infer<typeof googleCompleteSchema>
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
 export type UpdateProfilePhotoInput = z.infer<typeof updateProfilePhotoSchema>

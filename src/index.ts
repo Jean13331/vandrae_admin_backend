@@ -4,6 +4,7 @@ import https from 'node:https'
 import { loadEnv } from './config/env'
 import { createApp } from './app'
 import { connectDatabase } from './database'
+import { ensurePasswordResetColumns } from './database/ensurePasswordReset'
 import { seedAdminUser, seedAllowedEmails } from './database/seed'
 import { seedDemoTrail } from './database/seedDemoTrail'
 import { enableAuditPersistence } from './repositories/audit.repository'
@@ -28,6 +29,7 @@ function listenOnAllInterfaces(server: http.Server | https.Server, port: number)
 async function bootstrap() {
   const env = loadEnv()
   const pool = await connectDatabase(env)
+  await ensurePasswordResetColumns(pool)
   await enableAuditPersistence(pool)
   await seedAdminUser(pool, env)
   await seedAllowedEmails(pool, env)

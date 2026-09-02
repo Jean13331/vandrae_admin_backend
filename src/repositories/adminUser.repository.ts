@@ -41,6 +41,9 @@ export interface AdminUserRepository {
   linkGoogleSub(id: string, googleSub: string): Promise<AdminUserRecord | null>
   setAtivo(id: string, ativo: boolean): Promise<AdminUser | null>
   setPassword(id: string, passwordHash: string): Promise<AdminUserRecord | null>
+  setPasswordReset(id: string, tokenHash: string, expiresAt: Date): Promise<void>
+  findByPasswordResetHash(tokenHash: string): Promise<AdminUserRecord | null>
+  clearPasswordReset(id: string): Promise<void>
   findDetail(id: string): Promise<CommunityUserDetail | null>
   findProfilePhoto(id: string): Promise<{ arquivo: Buffer; contentType: string } | null>
   setProfilePhoto(id: string, arquivo: Buffer, contentType: string): Promise<AdminUserRecord | null>
@@ -248,12 +251,42 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
     async setPassword(id, passwordHash) {
       const result = await pool.query<UsuarioRow>(
         `UPDATE usuario
-         SET senha = $2, data_modificacao = CURRENT_TIMESTAMP
+         SET senha = $2,
+             senha_reset_hash = NULL,
+             senha_reset_expira = NULL,
+             data_modificacao = CURRENT_TIMESTAMP
          WHERE id = $1
          RETURNING ${usuarioReturning.trim()}`,
         [id, passwordHash],
       )
       return result.rows[0] ? mapUserRecord(result.rows[0]) : null
+    },
+    async setPasswordReset(id, tokenHash, expiresAt) {
+      await pool.query(
+        `UPDATE usuario
+         SET senha_reset_hash = $2, senha_reset_expira = $3, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id, tokenHash, expiresAt],
+      )
+    },
+    async findByPasswordResetHash(tokenHash) {
+      const result = await pool.query<UsuarioRow>(
+        `${usuarioSelect}
+         WHERE senha_reset_hash = $1
+           AND senha_reset_expira IS NOT NULL
+           AND senha_reset_expira > CURRENT_TIMESTAMP
+         LIMIT 1`,
+        [tokenHash],
+      )
+      return result.rows[0] ? mapUserRecord(result.rows[0]) : null
+    },
+    async clearPasswordReset(id) {
+      await pool.query(
+        `UPDATE usuario
+         SET senha_reset_hash = NULL, senha_reset_expira = NULL, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id],
+      )
     },
     async findProfilePhoto(id) {
       const result = await pool.query<{ arquivo: Buffer; content_type: string | null }>(

@@ -1,4 +1,6 @@
+import { createHash, randomBytes } from 'node:crypto'
 import type { Env } from '../../config/env'
+import { sendPasswordResetEmail } from '../../lib/mailer'
 import { durationFromNow } from '../../lib/duration'
 import { AppError } from '../../lib/errors'
 import { logger } from '../../lib/logger'
@@ -19,7 +21,7 @@ import {
   type AdminUserRepository,
 } from '../../repositories/adminUser.repository'
 import type { SessionRepository } from '../../repositories/session.repository'
-import type { GoogleCompleteInput, GoogleIdTokenInput, LoginInput, RegisterInput, ResetPasswordInput, UpdateProfilePhotoInput } from './auth.schema'
+import type { GoogleCompleteInput, GoogleIdTokenInput, LoginInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput, UpdateProfilePhotoInput } from './auth.schema'
 
 export type AuthSession = {
   user: AdminUser
@@ -30,6 +32,10 @@ export type AuthSession = {
 export type SessionMeta = {
   ip?: string
   userAgent?: string
+}
+
+function hashResetToken(token: string) {
+  return createHash('sha256').update(token).digest('hex')
 }
 
 export function createAuthService(
@@ -204,38 +210,52 @@ export function createAuthService(
       return session
     },
 
-    async resetPasswordApp(input: ResetPasswordInput, meta: SessionMeta = {}) {
-      const generic = 'Não foi possível redefinir a senha. Confira o e-mail e a data de nascimento.'
+    async requestPasswordReset(input: ForgotPasswordInput, meta: SessionMeta = {}) {
+      if (!env.RESEND_API_KEY) {
+        logger.error('[auth] RESEND_API_KEY ausente; recuperação de senha indisponível')
+        throw new AppError(503, 'Recuperação de senha indisponível no momento.')
+      }
+
       const user = await adminUsers.findByEmail(input.email)
+      if (!user || user.ativo === false || !user.passwordHash) {
+        logger.audit(`[auth] recuperação pedida (sem envio): ${input.email}`, {
+          ip: meta.ip,
+          status: 204,
+          actor: input.email,
+        })
+        return
+      }
 
+      const token = randomBytes(32).toString('hex')
+      await adminUsers.setPasswordReset(user.id, hashResetToken(token), durationFromNow('1h'))
+
+      try {
+        await sendPasswordResetEmail(env, { to: user.email, token })
+      } catch (error) {
+        logger.error('[auth] falha ao enviar e-mail de recuperação', error)
+        throw new AppError(503, 'Não foi possível enviar o e-mail agora. Tente de novo em instantes.')
+      }
+
+      logger.audit(`[auth] e-mail de recuperação enviado: ${user.email}`, {
+        ip: meta.ip,
+        status: 204,
+        actor: user.email,
+      })
+    },
+
+    async resetPasswordWithToken(input: ResetPasswordInput, meta: SessionMeta = {}) {
+      const user = await adminUsers.findByPasswordResetHash(hashResetToken(input.token))
       if (!user || user.ativo === false) {
-        logger.audit(`[auth] redefinição recusada: ${input.email}`, {
-          ip: meta.ip,
-          status: 400,
-          actor: input.email,
-        })
-        throw new AppError(400, generic)
-      }
-
-      if (!user.passwordHash) {
-        throw new AppError(400, 'Esta conta entra com o Google. Use Continuar com Google.')
-      }
-
-      if (user.dataNascimento !== input.birthDate) {
-        logger.audit(`[auth] redefinição recusada (nascimento): ${input.email}`, {
-          ip: meta.ip,
-          status: 400,
-          actor: input.email,
-        })
-        throw new AppError(400, generic)
+        throw new AppError(400, 'Link de recuperação inválido ou expirado.')
       }
 
       const updated = await adminUsers.setPassword(user.id, await hashPassword(input.password))
       if (!updated) {
-        throw new AppError(400, generic)
+        throw new AppError(400, 'Não foi possível redefinir a senha.')
       }
+
       await sessions.revokeAllForUser(user.id)
-      logger.audit(`[auth] senha redefinida: ${user.email}`, {
+      logger.audit(`[auth] senha redefinida pelo link: ${user.email}`, {
         ip: meta.ip,
         status: 204,
         actor: user.email,

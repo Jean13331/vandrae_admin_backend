@@ -368,12 +368,12 @@ export function createOpenApiSpec(env: Env) {
           },
         },
       },
-      '/auth/reset-password': {
+      '/auth/forgot-password': {
         post: {
           tags: ['App Auth'],
-          summary: 'Redefine a senha com e-mail e data de nascimento',
+          summary: 'Pede e-mail de recuperação de senha',
           description:
-            'Não envia e-mail. Confere o e-mail cadastrado e a data de nascimento, grava a nova senha e encerra as sessões. Contas só Google recebem 400 pedindo o login com Google.',
+            'Sempre responde 204 para não revelar se o e-mail existe. Se houver conta com senha, envia um link válido por 1 hora (Resend). Contas só Google não recebem e-mail.',
           security: [],
           requestBody: {
             required: true,
@@ -381,19 +381,79 @@ export function createOpenApiSpec(env: Env) {
               'application/json': {
                 schema: {
                   type: 'object',
-                  required: ['email', 'birthDate', 'password'],
+                  required: ['email'],
                   properties: {
                     email: { type: 'string', format: 'email' },
-                    birthDate: { type: 'string', example: '15/03/1990' },
-                    password: { type: 'string', minLength: 6 },
                   },
                 },
               },
             },
           },
           responses: {
-            204: { description: 'Senha atualizada' },
-            400: { description: 'E-mail, nascimento ou tipo de conta inválidos' },
+            204: { description: 'Pedido aceito' },
+            400: { description: 'E-mail inválido' },
+            503: { description: 'Envio de e-mail indisponível' },
+          },
+        },
+      },
+      '/auth/reset-password': {
+        get: {
+          tags: ['App Auth'],
+          summary: 'Página HTML para definir a senha nova',
+          description: 'Abra o link enviado por e-mail. O token vai na query string.',
+          security: [],
+          parameters: [
+            {
+              name: 'token',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Formulário HTML',
+              content: { 'text/html': { schema: { type: 'string' } } },
+            },
+            400: { description: 'Link sem token' },
+          },
+        },
+        post: {
+          tags: ['App Auth'],
+          summary: 'Define a senha nova com o token do e-mail',
+          description:
+            'JSON: `{ token, password }` responde 204. Formulário HTML (do e-mail) responde uma página de sucesso. Encerra as sessões da conta.',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['token', 'password'],
+                  properties: {
+                    token: { type: 'string' },
+                    password: { type: 'string', minLength: 6 },
+                  },
+                },
+              },
+              'application/x-www-form-urlencoded': {
+                schema: {
+                  type: 'object',
+                  required: ['token', 'password'],
+                  properties: {
+                    token: { type: 'string' },
+                    password: { type: 'string', minLength: 6 },
+                    confirm: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: 'Página HTML de sucesso (formulário)' },
+            204: { description: 'Senha atualizada (JSON)' },
+            400: { description: 'Token inválido ou expirado' },
           },
         },
       },
