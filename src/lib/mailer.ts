@@ -6,7 +6,7 @@ import { publicUrl } from './https'
 import { logger } from './logger'
 
 /** Remetente de testes do Resend. Só entrega no e-mail da conta até o domínio ser verificado. */
-const RESEND_TEST_FROM = 'Vandrae <beth.t@example.com>'
+const RESEND_TEST_FROM = 'Vandrae <onboarding@resend.dev>'
 const PLACEHOLDER_FROM = /@(example\.(com|org|net)|teste?\.com)\b/i
 
 function mailFrom(env: Env) {
@@ -15,7 +15,7 @@ function mailFrom(env: Env) {
     return from
   }
   if (from) {
-    logger.warn(`[mail] RESEND_FROM ignorado (${from}). Use beth.t@example.com ou um domínio verificado.`)
+    logger.warn(`[mail] RESEND_FROM ignorado (${from}). Use onboarding@resend.dev ou um domínio verificado.`)
   }
   return RESEND_TEST_FROM
 }
