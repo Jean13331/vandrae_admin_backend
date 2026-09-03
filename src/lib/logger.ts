@@ -18,9 +18,16 @@ export type LogEntry = {
   actor?: string
 }
 
-const MAX_ENTRIES = 500
+export const LOG_BUFFER_SIZE = 2000
 const entries: LogEntry[] = []
 const listeners = new Set<(entry: LogEntry) => void>()
+
+export function parseLogLimit(value: unknown, fallback = 200) {
+  const raw = Array.isArray(value) ? value[0] : value
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(Math.trunc(parsed), 1), LOG_BUFFER_SIZE)
+}
 
 function serialize(value: unknown) {
   if (value instanceof Error) {
@@ -51,7 +58,7 @@ export function appendLog(level: LogLevel, args: unknown[], meta: LogMeta = {}) 
   }
 
   entries.push(entry)
-  if (entries.length > MAX_ENTRIES) {
+  if (entries.length > LOG_BUFFER_SIZE) {
     entries.shift()
   }
 
@@ -74,12 +81,11 @@ export function setAuditPersist(writer: (entry: LogEntry) => Promise<void>) {
 
 export function hydrateLogs(items: LogEntry[]) {
   entries.length = 0
-  entries.push(...items.slice(-MAX_ENTRIES))
+  entries.push(...items.slice(-LOG_BUFFER_SIZE))
 }
 
 export function listLogs(limit = 200) {
-  const size = Math.min(Math.max(limit, 1), MAX_ENTRIES)
-  return entries.slice(-size)
+  return entries.slice(-parseLogLimit(limit))
 }
 
 export function subscribeLogs(listener: (entry: LogEntry) => void) {

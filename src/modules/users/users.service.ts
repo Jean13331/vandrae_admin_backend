@@ -1,8 +1,11 @@
 import { AppError } from '../../lib/errors'
 import { logger } from '../../lib/logger'
+import { sendBanNoticeEmail } from '../../lib/mailer'
 import { hashPassword } from '../../lib/password'
+import type { Env } from '../../config/env'
 import type { AdminAccessRepository } from '../../repositories/adminAccess.repository'
 import type { AdminUserRepository } from '../../repositories/adminUser.repository'
+import type { SessionRepository } from '../../repositories/session.repository'
 import type { CreateAdminUserInput } from './users.schema'
 
 function isUniqueViolation(error: unknown) {
@@ -17,6 +20,8 @@ function isUniqueViolation(error: unknown) {
 export function createUsersService(
   adminUsers: AdminUserRepository,
   accessEmails: AdminAccessRepository,
+  sessions: SessionRepository,
+  env: Env,
 ) {
   return {
     list(filters?: { q?: string; role?: 'admin' | 'user' }) {
@@ -31,9 +36,14 @@ export function createUsersService(
       return user
     },
 
-    async setAtivo(id: string, ativo: boolean, actor?: { id: string; email?: string }) {
+    async setAtivo(
+      id: string,
+      ativo: boolean,
+      actor?: { id: string; email?: string },
+      notify?: { subject: string; body: string },
+    ) {
       if (actor?.id === id) {
-        throw new AppError(400, 'Não é possível alterar o status da própria conta.')
+        throw new AppError(400, 'Não é possível banir a própria conta.')
       }
 
       const user = await adminUsers.setAtivo(id, ativo)
@@ -41,11 +51,32 @@ export function createUsersService(
         throw new AppError(404, 'Usuário não encontrado.')
       }
 
-      logger.audit(`[users] ${user.email} ${ativo ? 'ativado' : 'desativado'}`, {
+      if (!ativo) {
+        await sessions.revokeAllForUser(id)
+      }
+
+      let emailSent = false
+      let emailError = ''
+      if (!ativo && notify) {
+        try {
+          await sendBanNoticeEmail(env, {
+            to: user.email,
+            name: user.name,
+            subject: notify.subject,
+            body: notify.body,
+          })
+          emailSent = true
+        } catch (error) {
+          emailError = error instanceof Error ? error.message : 'Não foi possível enviar o e-mail.'
+          logger.error(`[users] banido ${user.email}, mas o e-mail não saiu: ${emailError}`)
+        }
+      }
+
+      logger.audit(`[users] ${user.email} ${ativo ? 'reativado' : 'banido'}`, {
         actor: actor?.email,
         status: 200,
       })
-      return user
+      return { user, emailSent, emailError }
     },
 
     async create(input: CreateAdminUserInput, actorEmail?: string) {

@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import { hydrateLogs, setAuditPersist, type LogEntry } from '../lib/logger'
+import { hydrateLogs, setAuditPersist, type LogEntry, LOG_BUFFER_SIZE } from '../lib/logger'
 
 type AuditRow = {
   id: string
@@ -49,11 +49,11 @@ export function createAuditRepository(pool: Pool) {
       const result = await pool.query<AuditRow>(
         `SELECT id, nivel, mensagem, ip, status, categoria, ator, data_cadastro
          FROM auditoria
-         ORDER BY data_cadastro ASC
+         ORDER BY data_cadastro DESC
          LIMIT $1`,
         [limit],
       )
-      return result.rows.map(mapRow)
+      return result.rows.reverse().map(mapRow)
     },
 
     async failuresByDay(days = 7) {
@@ -76,7 +76,7 @@ export type AuditRepository = ReturnType<typeof createAuditRepository>
 
 export async function enableAuditPersistence(pool: Pool) {
   const audit = createAuditRepository(pool)
-  const history = await audit.list(200)
+  const history = await audit.list(LOG_BUFFER_SIZE)
   hydrateLogs(history)
   setAuditPersist((entry) => audit.insert(entry))
   return audit

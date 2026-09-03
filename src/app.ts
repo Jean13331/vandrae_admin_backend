@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express from 'express'
+import path from 'node:path'
 import helmet from 'helmet'
 import type { Env } from './config/env'
 import { errorHandler } from './middleware/errorHandler'
@@ -16,6 +17,7 @@ import { createDashboardController } from './modules/dashboard/dashboard.control
 import { createDashboardRouter } from './modules/dashboard/dashboard.routes'
 import { setupSwagger } from './docs/swagger'
 import { createHealthRouter } from './modules/health/health.routes'
+import { createPlacesRouter } from './modules/places/places.routes'
 import { createLogsRouter } from './modules/logs/logs.routes'
 import { createUsersController } from './modules/users/users.controller'
 import { createUsersRouter } from './modules/users/users.routes'
@@ -65,7 +67,7 @@ export function createApp(
     createAuthService(env, adminUsers, accessEmails, sessions),
   )
   const dashboardController = createDashboardController(dashboardService)
-  const usersController = createUsersController(createUsersService(adminUsers, accessEmails))
+  const usersController = createUsersController(createUsersService(adminUsers, accessEmails, sessions, env))
   const accessController = createAccessController(createAccessService(accessEmails))
   const trailsController = createTrailsController(
     createTrailsService(createPostgresTrailRepository(pool)),
@@ -116,6 +118,7 @@ export function createApp(
     next()
   })
   app.use(requestLogger)
+  app.use('/public', express.static(path.resolve(process.cwd(), 'public')))
 
   setupSwagger(app, env)
   app.use('/health', createHealthRouter(pool))
@@ -123,6 +126,8 @@ export function createApp(
   app.use('/auth', createAppAuthRouter(authController))
   app.use('/trails', requireAppAuth)
   app.use('/trails', createAppTrailsRouter(trailsController))
+  app.use('/places', requireAppAuth)
+  app.use('/places', createPlacesRouter(env))
   app.use('/admin', requireAuth)
   app.use('/admin/auth', createAuthRouter(authController))
   app.use('/admin/dashboard', createDashboardRouter(dashboardController))

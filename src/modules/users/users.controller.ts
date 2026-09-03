@@ -28,8 +28,8 @@ export function createUsersController(usersService: UsersService) {
     update: asyncHandler(async (req: Request, res: Response) => {
       const params = userIdParamSchema.parse(req.params)
       const input = updateUserSchema.parse(req.body)
-      const user = await usersService.setAtivo(params.id, input.ativo, req.adminUser)
-      res.json({ user })
+      const user = await usersService.setAtivo(params.id, input.ativo, req.adminUser, input.notify)
+      res.json(user)
     }),
 
     create: asyncHandler(async (req: Request, res: Response) => {

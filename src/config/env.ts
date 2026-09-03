@@ -51,6 +51,7 @@ const envSchema = z
         [...new Set(value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean))],
       ),
     GOOGLE_CLIENT_SECRET: z.string().optional().transform(emptyToUndefined),
+    GOOGLE_MAPS_API_KEY: z.string().optional().transform(emptyToUndefined),
     RESEND_API_KEY: z.string().optional().transform(emptyToUndefined),
     RESEND_FROM: z.string().optional().transform(emptyToUndefined),
     DATABASE_URL: z.string().optional().transform(emptyToUndefined),

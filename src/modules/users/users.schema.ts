@@ -9,9 +9,20 @@ export const userIdParamSchema = z.object({
   id: z.string().uuid('Informe um identificador válido.'),
 })
 
-export const updateUserSchema = z.object({
-  ativo: z.boolean(),
-})
+export const updateUserSchema = z
+  .object({
+    ativo: z.boolean(),
+    notify: z
+      .object({
+        subject: z.string().trim().min(3, 'Informe o assunto do e-mail.').max(120),
+        body: z.string().trim().min(10, 'Escreva o texto do e-mail.').max(4000),
+      })
+      .optional(),
+  })
+  .refine((value) => value.ativo === false || !value.notify, {
+    message: 'O e-mail de aviso só pode ser enviado ao banir a conta.',
+    path: ['notify'],
+  })
 
 export const createAdminUserSchema = z.object({
   nome: z.string().trim().min(2, 'Informe o nome.'),

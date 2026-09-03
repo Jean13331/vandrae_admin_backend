@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { asyncHandler } from '../../lib/asyncHandler'
-import { listLogs, subscribeLogs } from '../../lib/logger'
+import { listLogs, parseLogLimit, subscribeLogs } from '../../lib/logger'
 
 export function createLogsRouter() {
   const router = Router()
@@ -8,19 +8,20 @@ export function createLogsRouter() {
   router.get(
     '/',
     asyncHandler(async (req, res) => {
-      const limit = Number(req.query.limit ?? 200)
-      res.json({ logs: listLogs(Number.isFinite(limit) ? limit : 200) })
+      const limit = parseLogLimit(req.query.limit)
+      res.json({ logs: listLogs(limit) })
     }),
   )
 
   router.get('/stream', (req, res) => {
+    const limit = parseLogLimit(req.query.limit)
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache, no-transform')
     res.setHeader('Connection', 'keep-alive')
     res.setHeader('X-Accel-Buffering', 'no')
     res.flushHeaders?.()
 
-    for (const entry of listLogs(200)) {
+    for (const entry of listLogs(limit)) {
       res.write(`data: ${JSON.stringify(entry)}\n\n`)
     }
 
