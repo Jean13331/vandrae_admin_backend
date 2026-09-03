@@ -20,6 +20,16 @@ function mailFrom(env: Env) {
   return RESEND_TEST_FROM
 }
 
+function describeResendError(message: string) {
+  if (/only send testing emails to your own email address/i.test(message)) {
+    return 'Com onboarding@resend.dev o Resend só entrega no e-mail da conta Resend. Para avisar outros usuários, verifique um domínio em resend.com/domains e use esse endereço em RESEND_FROM.'
+  }
+  if (/domain is not verified/i.test(message)) {
+    return 'O domínio do remetente não está verificado no Resend. Use onboarding@resend.dev ou um domínio em resend.com/domains.'
+  }
+  return message
+}
+
 export async function sendPasswordResetEmail(env: Env, input: { to: string; token: string }) {
   if (!env.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY não configurada.')
@@ -41,7 +51,7 @@ export async function sendPasswordResetEmail(env: Env, input: { to: string; toke
 
   if (error) {
     logger.error(`[mail] falha ao enviar recuperação: ${error.message}`)
-    throw new Error(error.message)
+    throw new Error(describeResendError(error.message))
   }
 }
 
@@ -125,7 +135,7 @@ export async function sendBanNoticeEmail(
 
   if (error) {
     logger.error(`[mail] falha ao enviar aviso de banimento: ${error.message}`)
-    throw new Error(error.message)
+    throw new Error(describeResendError(error.message))
   }
 }
 
