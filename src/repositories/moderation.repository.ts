@@ -14,10 +14,10 @@ export type Report = {
   alvoNome: string | null
   fotoUrl: string | null
   denunciante: ReportPerson
-  responsavel: ReportPerson
+  responsavel: ReportPerson | null
   responsavelPapel: string
   autor: ReportPerson
-  trilha: { id: string; nome: string; ativo: boolean }
+  trilha: { id: string; nome: string; ativo: boolean; autor: ReportPerson | null }
 }
 
 export type Review = {
@@ -69,9 +69,9 @@ function mapReport(row: {
   trilha_id: string
   trilha_nome: string
   trilha_ativa: boolean
-  trilha_autor_id: string
-  trilha_autor_nome: string
-  trilha_autor_email: string
+  trilha_autor_id: string | null
+  trilha_autor_nome: string | null
+  trilha_autor_email: string | null
   foto_autor_id: string | null
   foto_autor_nome: string | null
   foto_autor_email: string | null
@@ -82,7 +82,10 @@ function mapReport(row: {
   const alvo = (
     row.alvo === 'PONTO' || row.alvo === 'FOTO' || row.alvo === 'AVISO' ? row.alvo : 'TRILHA'
   ) as Report['alvo']
-  const trilhaAutor = person(row.trilha_autor_id, row.trilha_autor_nome, row.trilha_autor_email)
+  const trilhaAutor =
+    row.trilha_autor_id && row.trilha_autor_nome && row.trilha_autor_email
+      ? person(row.trilha_autor_id, row.trilha_autor_nome, row.trilha_autor_email)
+      : null
   const denunciante = person(row.denunciante_id, row.denunciante_nome, row.denunciante_email)
   const fotoAutor =
     row.foto_autor_id && row.foto_autor_nome && row.foto_autor_email
@@ -103,6 +106,10 @@ function mapReport(row: {
     responsavelPapel = 'Registrou o aviso'
   } else if (alvo === 'PONTO') {
     responsavelPapel = 'Criou a trilha (ponto)'
+  }
+
+  if (!responsavel) {
+    responsavelPapel = 'Responsável não identificado'
   }
 
   let fotoUrl: string | null = null
@@ -127,7 +134,12 @@ function mapReport(row: {
     responsavel,
     responsavelPapel,
     autor: denunciante,
-    trilha: { id: row.trilha_id, nome: row.trilha_nome, ativo: row.trilha_ativa },
+    trilha: {
+      id: row.trilha_id,
+      nome: row.trilha_nome,
+      ativo: row.trilha_ativa,
+      autor: trilhaAutor,
+    },
   }
 }
 
@@ -152,7 +164,7 @@ export function createModerationRepository(pool: Pool) {
          FROM denuncias d
          INNER JOIN usuario den ON den.id = d.usuario_id
          INNER JOIN trilha t ON t.id = d.trilha_id
-         INNER JOIN usuario tu ON tu.id = t.usuario_id
+         LEFT JOIN usuario tu ON tu.id = t.usuario_id
          LEFT JOIN pontos_trilha p ON p.id = d.pontos_trilha_id
          LEFT JOIN fotografia f ON f.id = d.fotografia_id
          LEFT JOIN usuario fu ON fu.id = f.usuario_id

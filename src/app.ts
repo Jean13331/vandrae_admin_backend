@@ -73,7 +73,7 @@ export function createApp(
     createTrailsService(createPostgresTrailRepository(pool)),
   )
   const moderationController = createModerationController(
-    createModerationService(createModerationRepository(pool)),
+    createModerationService(createModerationRepository(pool), env),
   )
 
   app.use(

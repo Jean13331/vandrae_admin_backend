@@ -25,8 +25,9 @@ export function createModerationController(moderationService: ModerationService)
         params.id,
         input.status,
         req.adminUser?.email,
+        input.notify,
       )
-      res.json({ report })
+      res.json(report)
     }),
 
     listReviews: asyncHandler(async (req: Request, res: Response) => {

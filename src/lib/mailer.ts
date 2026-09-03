@@ -76,6 +76,21 @@ export async function sendBanNoticeEmail(
   env: Env,
   input: { to: string; name: string; subject: string; body: string },
 ) {
+  await sendNoticeEmail(env, input, 'aviso de banimento')
+}
+
+export async function sendRemovalNoticeEmail(
+  env: Env,
+  input: { to: string; name: string; subject: string; body: string },
+) {
+  await sendNoticeEmail(env, input, 'aviso de remoção')
+}
+
+async function sendNoticeEmail(
+  env: Env,
+  input: { to: string; name: string; subject: string; body: string },
+  logLabel: string,
+) {
   if (!env.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY não configurada.')
   }
@@ -134,7 +149,7 @@ export async function sendBanNoticeEmail(
   })
 
   if (error) {
-    logger.error(`[mail] falha ao enviar aviso de banimento: ${error.message}`)
+    logger.error(`[mail] falha ao enviar ${logLabel}: ${error.message}`)
     throw new Error(describeResendError(error.message))
   }
 }
