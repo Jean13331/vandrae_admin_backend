@@ -7,9 +7,17 @@ import { logger } from './logger'
 
 /** Remetente de testes do Resend. Só entrega no e-mail da conta até o domínio ser verificado. */
 const RESEND_TEST_FROM = 'Vandrae <beth.t@example.com>'
+const PLACEHOLDER_FROM = /@(example\.(com|org|net)|teste?\.com)\b/i
 
 function mailFrom(env: Env) {
-  return env.RESEND_FROM || RESEND_TEST_FROM
+  const from = env.RESEND_FROM?.trim()
+  if (from && !PLACEHOLDER_FROM.test(from)) {
+    return from
+  }
+  if (from) {
+    logger.warn(`[mail] RESEND_FROM ignorado (${from}). Use beth.t@example.com ou um domínio verificado.`)
+  }
+  return RESEND_TEST_FROM
 }
 
 export async function sendPasswordResetEmail(env: Env, input: { to: string; token: string }) {
@@ -20,6 +28,7 @@ export async function sendPasswordResetEmail(env: Env, input: { to: string; toke
   const origin = publicUrl(env)
   const link = `${origin}/auth/reset-password?token=${encodeURIComponent(input.token)}`
   const from = mailFrom(env)
+  logger.info(`[mail] recuperação from=${from} to=${input.to}`)
   const resend = new Resend(env.RESEND_API_KEY)
 
   const { error } = await resend.emails.send({

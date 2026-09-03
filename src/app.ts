@@ -118,6 +118,12 @@ export function createApp(
     next()
   })
   app.use(requestLogger)
+  app.get('/', (_req, res) => {
+    res.status(200).json({ ok: true, service: 'vandrae-admin-backend' })
+  })
+  app.head('/', (_req, res) => {
+    res.status(200).end()
+  })
   app.use('/public', express.static(path.resolve(process.cwd(), 'public')))
 
   setupSwagger(app, env)
