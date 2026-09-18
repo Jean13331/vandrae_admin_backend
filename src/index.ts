@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import dns from 'node:dns'
 import http from 'node:http'
 import https from 'node:https'
 import { loadEnv } from './config/env'
@@ -14,6 +15,9 @@ import { createDashboardRepository } from './repositories/dashboard.repository'
 import { loadHttpsOptions, publicUrl } from './lib/https'
 import { lanIPv4 } from './lib/lan'
 import { logger } from './lib/logger'
+
+// Render e outros hosts IPv4-only falham com ENETUNREACH se o DNS devolver só IPv6.
+dns.setDefaultResultOrder('ipv4first')
 
 function listenOnAllInterfaces(server: http.Server | https.Server, port: number) {
   return new Promise<void>((resolve, reject) => {

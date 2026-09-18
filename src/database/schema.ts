@@ -270,4 +270,27 @@ BEGIN
     ALTER TABLE usuario ADD COLUMN IF NOT EXISTS foto_content_type VARCHAR(100);
   END IF;
 END $$`,
+  `DO $$
+DECLARE
+  tbl record;
+BEGIN
+  -- API usa conexão Postgres (postgres), não o PostgREST. RLS sem policy
+  -- bloqueia anon/authenticated na API pública do Supabase e some o alerta.
+  FOR tbl IN
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl.tablename);
+  END LOOP;
+
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated;
+    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
+  END IF;
+END $$`,
 ]
