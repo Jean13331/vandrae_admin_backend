@@ -297,6 +297,20 @@ export function createOpenApiSpec(env: Env) {
           },
         },
       },
+      '/admin/openapi': {
+        get: {
+          tags: ['Auth'],
+          summary: 'Spec OpenAPI (somente administrador autenticado)',
+          responses: {
+            200: {
+              description: 'Documento OpenAPI 3',
+            },
+            401: {
+              description: 'Token ausente ou inválido',
+            },
+          },
+        },
+      },
       '/auth/register': {
         post: {
           tags: ['App Auth'],

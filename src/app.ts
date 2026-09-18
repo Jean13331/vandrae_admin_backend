@@ -15,7 +15,7 @@ import { createAppAuthRouter } from './modules/auth/appAuth.routes'
 import { createAuthService } from './modules/auth/auth.service'
 import { createDashboardController } from './modules/dashboard/dashboard.controller'
 import { createDashboardRouter } from './modules/dashboard/dashboard.routes'
-import { setupSwagger } from './docs/swagger'
+import { createOpenApiRouter } from './docs/swagger'
 import { createHealthRouter } from './modules/health/health.routes'
 import { createPlacesRouter } from './modules/places/places.routes'
 import { createLogsRouter } from './modules/logs/logs.routes'
@@ -126,7 +126,6 @@ export function createApp(
   })
   app.use('/public', express.static(path.resolve(process.cwd(), 'public')))
 
-  setupSwagger(app, env)
   app.use('/health', createHealthRouter(pool))
   app.use('/auth', requireAppAuth)
   app.use('/auth', createAppAuthRouter(authController))
@@ -135,6 +134,7 @@ export function createApp(
   app.use('/places', requireAppAuth)
   app.use('/places', createPlacesRouter(env))
   app.use('/admin', requireAuth)
+  app.use('/admin', createOpenApiRouter(env))
   app.use('/admin/auth', createAuthRouter(authController))
   app.use('/admin/dashboard', createDashboardRouter(dashboardController))
   app.use('/admin/users', createUsersRouter(usersController))

@@ -2,11 +2,7 @@ import type { NextFunction, Request, Response } from 'express'
 import { logger } from '../lib/logger'
 
 function shouldSkip(path: string) {
-  return (
-    path.startsWith('/docs-assets') ||
-    path.startsWith('/admin/logs') ||
-    path === '/favicon.ico'
-  )
+  return path.startsWith('/admin/logs') || path === '/favicon.ico'
 }
 
 export function clientIp(req: Request) {
