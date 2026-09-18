@@ -274,23 +274,45 @@ END $$`,
 DECLARE
   tbl record;
 BEGIN
-  -- API usa conexão Postgres (postgres), não o PostgREST. RLS sem policy
-  -- bloqueia anon/authenticated na API pública do Supabase e some o alerta.
+  -- Só tabelas do app (não PostGIS / spatial_ref_sys, que o role do pooler não é dono).
   FOR tbl IN
     SELECT tablename
     FROM pg_tables
     WHERE schemaname = 'public'
+      AND tableowner = current_user
+      AND tablename NOT IN (
+        'spatial_ref_sys',
+        'geography_columns',
+        'geometry_columns',
+        'raster_columns',
+        'raster_overviews'
+      )
   LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl.tablename);
+    BEGIN
+      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl.tablename);
+    EXCEPTION
+      WHEN insufficient_privilege THEN
+        NULL;
+    END;
   END LOOP;
 
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
-    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
+    BEGIN
+      REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+      REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
+    EXCEPTION
+      WHEN insufficient_privilege THEN
+        NULL;
+    END;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated;
-    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
+    BEGIN
+      REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated;
+      REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
+    EXCEPTION
+      WHEN insufficient_privilege THEN
+        NULL;
+    END;
   END IF;
 END $$`,
 ]
