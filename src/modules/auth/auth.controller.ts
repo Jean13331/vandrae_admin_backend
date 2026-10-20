@@ -3,7 +3,19 @@ import { asyncHandler } from '../../lib/asyncHandler'
 import { AppError } from '../../lib/errors'
 import { clientIp } from '../../middleware/requestLogger'
 import { passwordResetFormHtml, passwordResetResultHtml } from '../../lib/passwordResetPage'
-import { googleCompleteSchema, googleLoginSchema, loginSchema, logoutSchema, refreshSchema, registerSchema, forgotPasswordSchema, resetPasswordSchema, updateProfilePhotoSchema } from './auth.schema'
+import {
+  deactivateAccountSchema,
+  deleteAccountSchema,
+  googleCompleteSchema,
+  googleLoginSchema,
+  loginSchema,
+  logoutSchema,
+  refreshSchema,
+  registerSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  updateProfilePhotoSchema,
+} from './auth.schema'
 import type { AuthService } from './auth.service'
 
 function sessionMeta(req: Request) {
@@ -174,12 +186,25 @@ export function createAuthController(authService: AuthService) {
       res.json({ user })
     }),
 
+    deactivateMeApp: asyncHandler(async (req: Request, res: Response) => {
+      const usuarioId = req.appUser?.id
+      if (!usuarioId) {
+        throw new AppError(401, 'Sessão inválida.')
+      }
+      deactivateAccountSchema.parse(req.body)
+      // Só a conta do token autenticado — nunca aceita id no body/params.
+      await authService.deactivateOwnAccount(usuarioId, req.appUser?.email, sessionMeta(req))
+      res.status(204).send()
+    }),
+
     deleteMeApp: asyncHandler(async (req: Request, res: Response) => {
       const usuarioId = req.appUser?.id
       if (!usuarioId) {
         throw new AppError(401, 'Sessão inválida.')
       }
-      await authService.deleteAccount(usuarioId, req.appUser?.email, sessionMeta(req))
+      deleteAccountSchema.parse(req.body)
+      // Só a conta do token autenticado — nunca aceita id no body/params.
+      await authService.deleteOwnAccount(usuarioId, req.appUser?.email, sessionMeta(req))
       res.status(204).send()
     }),
   }

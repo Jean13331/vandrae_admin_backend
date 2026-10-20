@@ -147,6 +147,20 @@ export const updateProfilePhotoSchema = z.object({
   contentType: z.string().trim().min(3).optional(),
 })
 
+/** Confirmação explícita para inativar a própria conta. */
+export const deactivateAccountSchema = z.object({
+  confirm: z.literal(true, {
+    error: 'Confirme a inativação da conta.',
+  }),
+})
+
+/** Confirmação explícita para excluir a própria conta (não aceita id de terceiros). */
+export const deleteAccountSchema = z.object({
+  confirm: z.literal('EXCLUIR', {
+    error: 'Digite EXCLUIR para confirmar a exclusão da conta.',
+  }),
+})
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type RefreshInput = z.infer<typeof refreshSchema>
 export type LogoutInput = z.infer<typeof logoutSchema>
@@ -156,3 +170,5 @@ export type GoogleCompleteInput = z.infer<typeof googleCompleteSchema>
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
 export type UpdateProfilePhotoInput = z.infer<typeof updateProfilePhotoSchema>
+export type DeactivateAccountInput = z.infer<typeof deactivateAccountSchema>
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>

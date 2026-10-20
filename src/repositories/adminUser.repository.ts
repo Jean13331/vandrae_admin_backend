@@ -12,6 +12,9 @@ export type AdminUser = {
   cidade?: string
   estado?: string
   ativo?: boolean
+  /** true se o uuid está em usuario_deletado — nunca reativar */
+  excluido?: boolean
+  excluidoEm?: string
   createdAt?: string
   photoUrl?: string | null
 }
@@ -40,6 +43,9 @@ export interface AdminUserRepository {
   createCommunity(input: CreateUsuarioInput): Promise<AdminUserRecord>
   linkGoogleSub(id: string, googleSub: string): Promise<AdminUserRecord | null>
   setAtivo(id: string, ativo: boolean): Promise<AdminUser | null>
+  isDeleted(id: string): Promise<boolean>
+  /** Arquiva em usuario_deletado, anonimiza PII e inativa. Só use para a conta autenticada. */
+  archiveAndDeleteOwn(id: string): Promise<{ id: string; name: string; email: string } | null>
   setPassword(id: string, passwordHash: string): Promise<AdminUserRecord | null>
   setPasswordReset(id: string, tokenHash: string, expiresAt: Date): Promise<void>
   findByPasswordResetHash(tokenHash: string): Promise<AdminUserRecord | null>
@@ -91,6 +97,8 @@ type UsuarioRow = {
   role: string
   ativo: boolean
   tem_foto?: boolean
+  excluido?: boolean
+  data_exclusao?: Date | string | null
 }
 
 function toDateOnly(value: Date | string) {
@@ -109,6 +117,8 @@ function mapPublicUser(row: UsuarioRow): AdminUser {
     cidade: row.cidade,
     estado: row.estado,
     ativo: row.ativo,
+    excluido: Boolean(row.excluido),
+    excluidoEm: row.data_exclusao ? new Date(row.data_exclusao).toISOString() : undefined,
     createdAt: new Date(row.data_cadastro).toISOString(),
     photoUrl: row.tem_foto ? '/auth/me/photo' : null,
   }
@@ -122,14 +132,17 @@ function mapUserRecord(row: UsuarioRow): AdminUserRecord {
 }
 
 const usuarioSelect = `
-  SELECT id, codigo, nome, email, senha, data_nascimento, cidade, estado,
-         data_cadastro, role, ativo, (foto IS NOT NULL) AS tem_foto
-  FROM usuario
+  SELECT u.id, u.codigo, u.nome, u.email, u.senha, u.data_nascimento, u.cidade, u.estado,
+         u.data_cadastro, u.role, u.ativo, (u.foto IS NOT NULL) AS tem_foto,
+         (d.id IS NOT NULL) AS excluido, d.data_exclusao
+  FROM usuario u
+  LEFT JOIN usuario_deletado d ON d.id = u.id
 `
 
 const usuarioReturning = `
   id, codigo, nome, email, senha, data_nascimento, cidade, estado,
-  data_cadastro, role, ativo, (foto IS NOT NULL) AS tem_foto
+  data_cadastro, role, ativo, (foto IS NOT NULL) AS tem_foto,
+  FALSE AS excluido, NULL::timestamptz AS data_exclusao
 `
 
 export function createPostgresAdminUserRepository(pool: Pool): AdminUserRepository {
@@ -137,7 +150,7 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
     async findByEmail(email) {
       const result = await pool.query<UsuarioRow>(
         `${usuarioSelect}
-         WHERE lower(email) = lower($1)
+         WHERE lower(u.email) = lower($1)
          LIMIT 1`,
         [email.trim()],
       )
@@ -147,7 +160,7 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
     async findById(id) {
       const result = await pool.query<UsuarioRow>(
         `${usuarioSelect}
-         WHERE id = $1
+         WHERE u.id = $1
          LIMIT 1`,
         [id],
       )
@@ -157,7 +170,7 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
     async findByGoogleSub(googleSub) {
       const result = await pool.query<UsuarioRow>(
         `${usuarioSelect}
-         WHERE google_sub = $1
+         WHERE u.google_sub = $1
          LIMIT 1`,
         [googleSub],
       )
@@ -167,9 +180,9 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
     async list(filters = {}) {
       const result = await pool.query<UsuarioRow>(
         `${usuarioSelect}
-         WHERE ($1::text IS NULL OR nome ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
-           AND ($2::text IS NULL OR role = $2)
-         ORDER BY data_cadastro DESC`,
+         WHERE ($1::text IS NULL OR u.nome ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%')
+           AND ($2::text IS NULL OR u.role = $2)
+         ORDER BY u.data_cadastro DESC`,
         [filters.q || null, filters.role === 'admin' ? 'ADMIN' : filters.role === 'user' ? 'USER' : null],
       )
 
@@ -239,14 +252,97 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
       return result.rows[0] ? mapUserRecord(result.rows[0]) : null
     },
     async setAtivo(id, ativo) {
+      if (ativo) {
+        const deleted = await pool.query<{ exists: boolean }>(
+          `SELECT EXISTS(SELECT 1 FROM usuario_deletado WHERE id = $1) AS exists`,
+          [id],
+        )
+        if (deleted.rows[0]?.exists) {
+          return null
+        }
+      }
+
       const result = await pool.query<UsuarioRow>(
         `UPDATE usuario
          SET ativo = $2, data_modificacao = CURRENT_TIMESTAMP
          WHERE id = $1
+           AND NOT EXISTS (SELECT 1 FROM usuario_deletado d WHERE d.id = usuario.id)
          RETURNING ${usuarioReturning.trim()}`,
         [id, ativo],
       )
       return result.rows[0] ? mapPublicUser(result.rows[0]) : null
+    },
+    async isDeleted(id) {
+      const result = await pool.query<{ exists: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM usuario_deletado WHERE id = $1) AS exists`,
+        [id],
+      )
+      return Boolean(result.rows[0]?.exists)
+    },
+    async archiveAndDeleteOwn(id) {
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+
+        const already = await client.query<{ exists: boolean }>(
+          `SELECT EXISTS(SELECT 1 FROM usuario_deletado WHERE id = $1) AS exists`,
+          [id],
+        )
+        if (already.rows[0]?.exists) {
+          await client.query('ROLLBACK')
+          return null
+        }
+
+        const current = await client.query<{ id: string; nome: string; email: string }>(
+          `SELECT id, nome, email
+           FROM usuario
+           WHERE id = $1
+           FOR UPDATE`,
+          [id],
+        )
+        const row = current.rows[0]
+        if (!row) {
+          await client.query('ROLLBACK')
+          return null
+        }
+
+        // Guarda o e-mail/nome originais ligados a ESTE uuid. Um cadastro novo com o mesmo
+        // e-mail vira outro uuid e não conflita com este histórico.
+        await client.query(
+          `INSERT INTO usuario_deletado (id, nome, email, data_exclusao)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+          [row.id, row.nome, row.email],
+        )
+
+        await client.query(
+          `UPDATE usuario
+           SET nome = 'Conta excluída',
+               email = $2,
+               senha = NULL,
+               google_sub = NULL,
+               auth_provider = 'password',
+               foto = NULL,
+               foto_content_type = NULL,
+               senha_reset_hash = NULL,
+               senha_reset_expira = NULL,
+               ativo = FALSE,
+               data_modificacao = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [row.id, `deleted+${row.id}@vandrae.invalid`],
+        )
+
+        await client.query(`DELETE FROM admin_email_autorizado WHERE lower(email) = lower($1)`, [
+          row.email,
+        ])
+
+        await client.query('COMMIT')
+        return { id: row.id, name: row.nome, email: row.email }
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      } finally {
+        client.release()
+      }
     },
     async setPassword(id, passwordHash) {
       const result = await pool.query<UsuarioRow>(
@@ -272,9 +368,9 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
     async findByPasswordResetHash(tokenHash) {
       const result = await pool.query<UsuarioRow>(
         `${usuarioSelect}
-         WHERE senha_reset_hash = $1
-           AND senha_reset_expira IS NOT NULL
-           AND senha_reset_expira > CURRENT_TIMESTAMP
+         WHERE u.senha_reset_hash = $1
+           AND u.senha_reset_expira IS NOT NULL
+           AND u.senha_reset_expira > CURRENT_TIMESTAMP
          LIMIT 1`,
         [tokenHash],
       )

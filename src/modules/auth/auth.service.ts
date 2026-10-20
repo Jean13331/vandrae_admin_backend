@@ -533,16 +533,49 @@ export function createAuthService(
       })
     },
 
-    async deleteAccount(usuarioId: string, actorEmail?: string, meta: SessionMeta = {}) {
+    async deactivateOwnAccount(usuarioId: string, actorEmail?: string, meta: SessionMeta = {}) {
+      if (await adminUsers.isDeleted(usuarioId)) {
+        throw new AppError(400, 'Esta conta já foi excluída e não pode ser alterada.')
+      }
+
+      const current = await adminUsers.findById(usuarioId)
+      if (!current) {
+        throw new AppError(404, 'Usuário não encontrado.')
+      }
+      if (current.ativo === false) {
+        throw new AppError(400, 'Esta conta já está inativa.')
+      }
+
       const user = await adminUsers.setAtivo(usuarioId, false)
       if (!user) {
         throw new AppError(404, 'Usuário não encontrado.')
       }
+
       await sessions.revokeAllForUser(usuarioId)
-      logger.audit(`[auth] conta inativada (exclusão pelo app): ${user.email}`, {
+      logger.audit(`[auth] conta inativada pelo próprio usuário: ${actorEmail ?? user.email}`, {
         ip: meta.ip,
         status: 204,
         actor: actorEmail,
+      })
+    },
+
+    async deleteOwnAccount(usuarioId: string, actorEmail?: string, meta: SessionMeta = {}) {
+      if (await adminUsers.isDeleted(usuarioId)) {
+        throw new AppError(400, 'Esta conta já foi excluída e não pode ser recuperada.')
+      }
+
+      const archived = await adminUsers.archiveAndDeleteOwn(usuarioId)
+      if (!archived) {
+        throw new AppError(404, 'Usuário não encontrado ou já excluído.')
+      }
+
+      // UUID antigo fica permanente em usuario_deletado; o e-mail original fica livre
+      // para um cadastro novo (outro UUID). Esta conta nunca mais autentica.
+      await sessions.revokeAllForUser(usuarioId)
+      logger.audit(`[auth] conta excluída pelo próprio usuário: ${archived.email}`, {
+        ip: meta.ip,
+        status: 204,
+        actor: actorEmail ?? archived.email,
       })
     },
 

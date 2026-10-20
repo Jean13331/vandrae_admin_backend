@@ -620,11 +620,53 @@ export function createOpenApiSpec(env: Env) {
         },
         delete: {
           tags: ['App Auth'],
-          summary: 'Exclui a conta do usuário logado',
+          summary: 'Exclui permanentemente a conta do usuário logado',
           description:
-            'Para o usuário a conta some. No banco ela só é inativada (`usuario.ativo = false`) e todas as sessões são revogadas. O e-mail não volta a ficar disponível.',
+            'Somente o próprio usuário autenticado. Exige `{ "confirm": "EXCLUIR" }`. Arquiva o UUID, nome, e-mail e data em `usuario_deletado` (essa conta nunca reativa). Anonimiza o registro em `usuario`, revoga sessões e libera o e-mail para um cadastro novo com UUID diferente. Não aceita id de terceiros.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['confirm'],
+                  properties: {
+                    confirm: { type: 'string', enum: ['EXCLUIR'] },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            204: { description: 'Conta excluída e sessões encerradas' },
+            400: { description: 'Confirmação inválida' },
+            401: { description: 'Token ausente ou inválido' },
+          },
+        },
+      },
+      '/auth/me/deactivate': {
+        patch: {
+          tags: ['App Auth'],
+          summary: 'Inativa a conta do usuário logado',
+          description:
+            'Somente o próprio usuário autenticado. Exige `{ "confirm": true }`. Define `usuario.ativo = false` e revoga sessões. Os dados permanecem; um administrador pode reativar depois. Não aceita id de terceiros.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['confirm'],
+                  properties: {
+                    confirm: { type: 'boolean', enum: [true] },
+                  },
+                },
+              },
+            },
+          },
           responses: {
             204: { description: 'Conta inativada e sessões encerradas' },
+            400: { description: 'Confirmação inválida' },
             401: { description: 'Token ausente ou inválido' },
           },
         },

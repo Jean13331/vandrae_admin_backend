@@ -102,6 +102,14 @@ BEGIN
   END IF;
 END $$`,
   `CREATE UNIQUE INDEX IF NOT EXISTS uq_usuario_google_sub ON usuario(google_sub) WHERE google_sub IS NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS usuario_deletado (
+    id UUID PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    data_exclusao TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_usuario_deletado_email ON usuario_deletado (lower(email))`,
+  `CREATE INDEX IF NOT EXISTS idx_usuario_deletado_data ON usuario_deletado (data_exclusao DESC)`,
   `DO $$
 BEGIN
   IF to_regclass('public.trilha') IS NOT NULL AND to_regclass('public.usuario') IS NOT NULL THEN

@@ -46,6 +46,13 @@ export function createUsersService(
         throw new AppError(400, 'Não é possível banir a própria conta.')
       }
 
+      if (ativo && (await adminUsers.isDeleted(id))) {
+        throw new AppError(
+          400,
+          'Esta conta foi excluída pelo próprio usuário e não pode ser reativada. O histórico fica em usuario_deletado; um novo cadastro com o mesmo e-mail vira outra conta (UUID novo).',
+        )
+      }
+
       const user = await adminUsers.setAtivo(id, ativo)
       if (!user) {
         throw new AppError(404, 'Usuário não encontrado.')

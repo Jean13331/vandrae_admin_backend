@@ -17,6 +17,7 @@ export function createAppAuthRouter(controller: AuthController) {
   router.put('/me/photo', controller.updateMyPhotoApp)
   router.delete('/me/photo', controller.deleteMyPhotoApp)
   router.get('/me', controller.meApp)
+  router.patch('/me/deactivate', controller.deactivateMeApp)
   router.delete('/me', controller.deleteMeApp)
 
   return router
