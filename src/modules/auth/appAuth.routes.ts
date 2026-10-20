@@ -5,6 +5,8 @@ export function createAppAuthRouter(controller: AuthController) {
   const router = Router()
 
   router.post('/login', controller.loginApp)
+  router.post('/reactivate/request', controller.requestReactivateApp)
+  router.post('/reactivate/confirm', controller.confirmReactivateApp)
   router.post('/forgot-password', controller.forgotPasswordApp)
   router.get('/reset-password', controller.showResetPasswordPage)
   router.post('/reset-password', controller.resetPasswordApp)

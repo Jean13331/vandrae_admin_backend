@@ -644,6 +644,65 @@ export function createOpenApiSpec(env: Env) {
           },
         },
       },
+      '/auth/reactivate/request': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Envia código de reativação por e-mail',
+          security: [],
+          description:
+            'Recebe o reactivationToken obtido no login de conta inativa. Envia código de 6 dígitos válido por 10 minutos.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reactivationToken'],
+                  properties: { reactivationToken: { type: 'string' } },
+                },
+              },
+            },
+          },
+          responses: {
+            204: { description: 'Código enviado' },
+            400: { description: 'Conta excluída ou já ativa' },
+            401: { description: 'Token de reativação inválido' },
+          },
+        },
+      },
+      '/auth/reactivate/confirm': {
+        post: {
+          tags: ['App Auth'],
+          summary: 'Confirma código e reativa a conta',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reactivationToken', 'code'],
+                  properties: {
+                    reactivationToken: { type: 'string' },
+                    code: { type: 'string', example: '123456' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Conta reativada e sessão criada',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/AppAuthSession' },
+                },
+              },
+            },
+            400: { description: 'Código inválido ou expirado' },
+          },
+        },
+      },
       '/auth/me/deactivate': {
         patch: {
           tags: ['App Auth'],

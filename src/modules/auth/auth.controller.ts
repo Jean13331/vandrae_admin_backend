@@ -14,6 +14,8 @@ import {
   registerSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  reactivateConfirmSchema,
+  reactivateRequestSchema,
   updateProfilePhotoSchema,
 } from './auth.schema'
 import type { AuthService } from './auth.service'
@@ -58,6 +60,18 @@ export function createAuthController(authService: AuthService) {
     loginApp: asyncHandler(async (req: Request, res: Response) => {
       const credentials = loginSchema.parse(req.body)
       const session = await authService.loginApp(credentials, sessionMeta(req))
+      res.json(session)
+    }),
+
+    requestReactivateApp: asyncHandler(async (req: Request, res: Response) => {
+      const input = reactivateRequestSchema.parse(req.body)
+      await authService.requestAccountReactivation(input, sessionMeta(req))
+      res.status(204).send()
+    }),
+
+    confirmReactivateApp: asyncHandler(async (req: Request, res: Response) => {
+      const input = reactivateConfirmSchema.parse(req.body)
+      const session = await authService.confirmAccountReactivation(input, sessionMeta(req))
       res.json(session)
     }),
 

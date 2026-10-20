@@ -1,10 +1,16 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { Env } from '../../config/env'
-import { sendPasswordResetEmail } from '../../lib/mailer'
+import { sendPasswordResetEmail, sendReactivationCodeEmail } from '../../lib/mailer'
 import { durationFromNow } from '../../lib/duration'
 import { AppError } from '../../lib/errors'
 import { logger } from '../../lib/logger'
-import { signAccessToken, signGoogleProfileToken, verifyGoogleProfileToken } from '../../lib/jwt'
+import {
+  signAccessToken,
+  signGoogleProfileToken,
+  signReactivationToken,
+  verifyGoogleProfileToken,
+  verifyReactivationToken,
+} from '../../lib/jwt'
 import { verifyGoogleIdToken, exchangeGoogleAuthorizationCode } from '../../lib/googleIdToken'
 import { verifyPassword, hashPassword } from '../../lib/password'
 import {
@@ -21,7 +27,17 @@ import {
   type AdminUserRepository,
 } from '../../repositories/adminUser.repository'
 import type { SessionRepository } from '../../repositories/session.repository'
-import type { GoogleCompleteInput, GoogleIdTokenInput, LoginInput, RegisterInput, ForgotPasswordInput, ResetPasswordInput, UpdateProfilePhotoInput } from './auth.schema'
+import type {
+  GoogleCompleteInput,
+  GoogleIdTokenInput,
+  LoginInput,
+  RegisterInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
+  UpdateProfilePhotoInput,
+  ReactivateRequestInput,
+  ReactivateConfirmInput,
+} from './auth.schema'
 
 export type AuthSession = {
   user: AdminUser
@@ -36,6 +52,16 @@ export type SessionMeta = {
 
 function hashResetToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
+}
+
+function hashReactivationCode(code: string) {
+  return createHash('sha256').update(code.trim()).digest('hex')
+}
+
+function inactiveAccountError(user: AdminUserRecord, env: Env) {
+  return new AppError(403, 'Conta inativada, deseja ativar novamente?', 'ACCOUNT_INACTIVE', {
+    reactivationToken: signReactivationToken({ sub: user.id, email: user.email }, env),
+  })
 }
 
 export function createAuthService(
@@ -177,13 +203,22 @@ export function createAuthService(
     async loginApp(input: LoginInput, meta: SessionMeta = {}): Promise<AuthSession> {
       const user = await adminUsers.findByEmail(input.email)
 
-      if (!user || user.ativo === false) {
+      if (!user) {
         logger.audit(`[auth] login do app recusado: ${input.email}`, {
           ip: meta.ip,
           status: 401,
           actor: input.email,
         })
         throw new AppError(401, 'E-mail ou senha inválidos.')
+      }
+
+      if (await adminUsers.isDeleted(user.id)) {
+        logger.audit(`[auth] login do app em conta excluída: ${input.email}`, {
+          ip: meta.ip,
+          status: 401,
+          actor: input.email,
+        })
+        throw new AppError(401, 'Esta conta foi excluída e não pode ser recuperada.')
       }
 
       if (!user.passwordHash) {
@@ -199,6 +234,15 @@ export function createAuthService(
           actor: input.email,
         })
         throw new AppError(401, 'E-mail ou senha inválidos.')
+      }
+
+      if (user.ativo === false) {
+        logger.audit(`[auth] login do app em conta inativa: ${input.email}`, {
+          ip: meta.ip,
+          status: 403,
+          actor: input.email,
+        })
+        throw inactiveAccountError(user, env)
       }
 
       const session = await issueAppSession(user, meta)
@@ -309,7 +353,10 @@ export function createAuthService(
       const byEmail = await adminUsers.findByEmail(googleUser.email)
 
       if (byGoogle) {
-        if (byGoogle.ativo === false) throw new AppError(401, 'Esta conta está desativada.')
+        if (await adminUsers.isDeleted(byGoogle.id)) {
+          throw new AppError(401, 'Esta conta foi excluída e não pode ser recuperada.')
+        }
+        if (byGoogle.ativo === false) throw inactiveAccountError(byGoogle, env)
         if (byEmail && byEmail.id !== byGoogle.id) {
           throw new AppError(409, 'Esta conta Google já está vinculada a outro usuário.')
         }
@@ -323,7 +370,10 @@ export function createAuthService(
       }
 
       if (byEmail) {
-        if (byEmail.ativo === false) throw new AppError(401, 'Esta conta está desativada.')
+        if (await adminUsers.isDeleted(byEmail.id)) {
+          throw new AppError(401, 'Esta conta foi excluída e não pode ser recuperada.')
+        }
+        if (byEmail.ativo === false) throw inactiveAccountError(byEmail, env)
         const linked = (await adminUsers.linkGoogleSub(byEmail.id, googleUser.googleSub)) ?? byEmail
         const session = await issueAppSession(linked, meta)
         logger.audit(`[auth] login Google vinculado: ${session.user.email}`, {
@@ -359,7 +409,10 @@ export function createAuthService(
 
       const already = await adminUsers.findByGoogleSub(profile.googleSub)
       if (already) {
-        if (already.ativo === false) throw new AppError(401, 'Esta conta está desativada.')
+        if (await adminUsers.isDeleted(already.id)) {
+          throw new AppError(401, 'Esta conta foi excluída e não pode ser recuperada.')
+        }
+        if (already.ativo === false) throw inactiveAccountError(already, env)
         return issueAppSession(already, meta)
       }
 
@@ -531,6 +584,89 @@ export function createAuthService(
         ip: meta.ip,
         status: 204,
       })
+    },
+
+    async requestAccountReactivation(input: ReactivateRequestInput, meta: SessionMeta = {}) {
+      if (!env.RESEND_API_KEY) {
+        throw new AppError(503, 'Reativação indisponível no momento.')
+      }
+
+      let challenge
+      try {
+        challenge = verifyReactivationToken(input.reactivationToken, env)
+      } catch {
+        throw new AppError(401, 'Sessão de reativação expirada. Entre de novo.')
+      }
+
+      const user = await adminUsers.findById(challenge.sub)
+      if (!user || user.email.toLowerCase() !== challenge.email.toLowerCase()) {
+        throw new AppError(401, 'Sessão de reativação inválida. Entre de novo.')
+      }
+      if (await adminUsers.isDeleted(user.id)) {
+        throw new AppError(400, 'Esta conta foi excluída e não pode ser reativada.')
+      }
+      if (user.ativo !== false) {
+        throw new AppError(400, 'Esta conta já está ativa. Faça login normalmente.')
+      }
+
+      const code = String(randomBytes(3).readUIntBE(0, 3) % 1_000_000).padStart(6, '0')
+      await adminUsers.setReactivationCode(user.id, hashReactivationCode(code), durationFromNow('10m'))
+
+      try {
+        await sendReactivationCodeEmail(env, {
+          to: user.email,
+          name: user.name,
+          code,
+        })
+      } catch (error) {
+        logger.error('[auth] falha ao enviar código de reativação', error)
+        throw new AppError(503, 'Não foi possível enviar o e-mail agora. Tente de novo em instantes.')
+      }
+
+      logger.audit(`[auth] código de reativação enviado: ${user.email}`, {
+        ip: meta.ip,
+        status: 204,
+        actor: user.email,
+      })
+    },
+
+    async confirmAccountReactivation(
+      input: ReactivateConfirmInput,
+      meta: SessionMeta = {},
+    ): Promise<AuthSession> {
+      let challenge
+      try {
+        challenge = verifyReactivationToken(input.reactivationToken, env)
+      } catch {
+        throw new AppError(401, 'Sessão de reativação expirada. Entre de novo.')
+      }
+
+      const byCode = await adminUsers.findByReactivationHash(hashReactivationCode(input.code))
+      if (!byCode || byCode.id !== challenge.sub) {
+        throw new AppError(400, 'Código inválido ou expirado.')
+      }
+      if (await adminUsers.isDeleted(byCode.id)) {
+        throw new AppError(400, 'Esta conta foi excluída e não pode ser reativada.')
+      }
+
+      const activated = await adminUsers.setAtivo(byCode.id, true)
+      if (!activated) {
+        throw new AppError(400, 'Não foi possível reativar a conta.')
+      }
+
+      await adminUsers.clearReactivationCode(byCode.id)
+      const user = await adminUsers.findById(byCode.id)
+      if (!user) {
+        throw new AppError(400, 'Não foi possível reativar a conta.')
+      }
+
+      const session = await issueAppSession(user, meta)
+      logger.audit(`[auth] conta reativada: ${session.user.email}`, {
+        ip: meta.ip,
+        status: 200,
+        actor: session.user.email,
+      })
+      return session
     },
 
     async deactivateOwnAccount(usuarioId: string, actorEmail?: string, meta: SessionMeta = {}) {

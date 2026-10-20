@@ -161,6 +161,18 @@ export const deleteAccountSchema = z.object({
   }),
 })
 
+export const reactivateRequestSchema = z.object({
+  reactivationToken: z.string().min(20, 'Sessão de reativação inválida. Entre de novo.'),
+})
+
+export const reactivateConfirmSchema = z.object({
+  reactivationToken: z.string().min(20, 'Sessão de reativação inválida. Entre de novo.'),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Informe o código de 6 dígitos enviado por e-mail.'),
+})
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type RefreshInput = z.infer<typeof refreshSchema>
 export type LogoutInput = z.infer<typeof logoutSchema>
@@ -172,3 +184,5 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
 export type UpdateProfilePhotoInput = z.infer<typeof updateProfilePhotoSchema>
 export type DeactivateAccountInput = z.infer<typeof deactivateAccountSchema>
 export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>
+export type ReactivateRequestInput = z.infer<typeof reactivateRequestSchema>
+export type ReactivateConfirmInput = z.infer<typeof reactivateConfirmSchema>

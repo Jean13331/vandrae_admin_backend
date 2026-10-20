@@ -77,3 +77,42 @@ export function verifyGoogleProfileToken(token: string, env: Env): GoogleProfile
     name: payload.name,
   }
 }
+
+export type ReactivationPayload = {
+  typ: 'account-reactivation'
+  sub: string
+  email: string
+}
+
+export function signReactivationToken(payload: Omit<ReactivationPayload, 'typ'>, env: Env) {
+  return jwt.sign(
+    {
+      typ: 'account-reactivation',
+      sub: payload.sub,
+      email: payload.email,
+    },
+    env.JWT_SECRET,
+    { expiresIn: '20m' },
+  )
+}
+
+export function verifyReactivationToken(token: string, env: Env): ReactivationPayload {
+  const decoded = jwt.verify(token, env.JWT_SECRET)
+  if (typeof decoded === 'string') {
+    throw new Error('Token inválido.')
+  }
+  const payload = decoded as jwt.JwtPayload & Partial<ReactivationPayload>
+  if (
+    payload.typ !== 'account-reactivation' ||
+    typeof payload.sub !== 'string' ||
+    typeof payload.email !== 'string'
+  ) {
+    throw new Error('Token inválido.')
+  }
+
+  return {
+    typ: 'account-reactivation',
+    sub: payload.sub,
+    email: payload.email,
+  }
+}

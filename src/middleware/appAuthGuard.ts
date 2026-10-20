@@ -3,6 +3,8 @@ import type { RequestHandler } from 'express'
 
 const PUBLIC_POST_PATHS = new Set([
   '/auth/login',
+  '/auth/reactivate/request',
+  '/auth/reactivate/confirm',
   '/auth/forgot-password',
   '/auth/reset-password',
   '/auth/register',

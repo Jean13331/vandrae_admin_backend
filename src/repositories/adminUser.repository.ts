@@ -50,6 +50,9 @@ export interface AdminUserRepository {
   setPasswordReset(id: string, tokenHash: string, expiresAt: Date): Promise<void>
   findByPasswordResetHash(tokenHash: string): Promise<AdminUserRecord | null>
   clearPasswordReset(id: string): Promise<void>
+  setReactivationCode(id: string, codeHash: string, expiresAt: Date): Promise<void>
+  findByReactivationHash(codeHash: string): Promise<AdminUserRecord | null>
+  clearReactivationCode(id: string): Promise<void>
   findDetail(id: string): Promise<CommunityUserDetail | null>
   findProfilePhoto(id: string): Promise<{ arquivo: Buffer; contentType: string } | null>
   setProfilePhoto(id: string, arquivo: Buffer, contentType: string): Promise<AdminUserRecord | null>
@@ -325,6 +328,8 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
                foto_content_type = NULL,
                senha_reset_hash = NULL,
                senha_reset_expira = NULL,
+               reativacao_hash = NULL,
+               reativacao_expira = NULL,
                ativo = FALSE,
                data_modificacao = CURRENT_TIMESTAMP
            WHERE id = $1`,
@@ -380,6 +385,33 @@ export function createPostgresAdminUserRepository(pool: Pool): AdminUserReposito
       await pool.query(
         `UPDATE usuario
          SET senha_reset_hash = NULL, senha_reset_expira = NULL, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id],
+      )
+    },
+    async setReactivationCode(id, codeHash, expiresAt) {
+      await pool.query(
+        `UPDATE usuario
+         SET reativacao_hash = $2, reativacao_expira = $3, data_modificacao = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id, codeHash, expiresAt],
+      )
+    },
+    async findByReactivationHash(codeHash) {
+      const result = await pool.query<UsuarioRow>(
+        `${usuarioSelect}
+         WHERE u.reativacao_hash = $1
+           AND u.reativacao_expira IS NOT NULL
+           AND u.reativacao_expira > CURRENT_TIMESTAMP
+         LIMIT 1`,
+        [codeHash],
+      )
+      return result.rows[0] ? mapUserRecord(result.rows[0]) : null
+    },
+    async clearReactivationCode(id) {
+      await pool.query(
+        `UPDATE usuario
+         SET reativacao_hash = NULL, reativacao_expira = NULL, data_modificacao = CURRENT_TIMESTAMP
          WHERE id = $1`,
         [id],
       )

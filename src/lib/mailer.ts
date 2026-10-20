@@ -154,6 +154,55 @@ async function sendNoticeEmail(
   }
 }
 
+export async function sendReactivationCodeEmail(
+  env: Env,
+  input: { to: string; name: string; code: string },
+) {
+  if (!env.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY não configurada.')
+  }
+
+  const from = mailFrom(env)
+  logger.info(`[mail] reativação from=${from} to=${input.to}`)
+  const resend = new Resend(env.RESEND_API_KEY)
+  const safeName = escapeHtml(input.name)
+  const safeCode = escapeHtml(input.code)
+
+  const { error } = await resend.emails.send({
+    from,
+    to: input.to,
+    subject: 'Código para reativar sua conta — Vandrae',
+    html: `<!doctype html>
+<html lang="pt-BR">
+  <body style="margin:0;background:#f4efe4;font-family:Arial,sans-serif;color:#1a3c34;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4efe4;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" style="max-width:480px;background:#ffffff;border-radius:18px;padding:28px;">
+            <tr>
+              <td>
+                <p style="margin:0 0 8px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#2d6a4f;font-weight:700;">Vandrae</p>
+                <h1 style="margin:0 0 12px;font-size:22px;">Reativar conta</h1>
+                <p style="margin:0 0 16px;line-height:1.5;color:#3d4f48;">Olá, ${safeName}. Use o código abaixo no app para reativar sua conta. Ele vale por 10 minutos.</p>
+                <p style="margin:0 0 20px;font-size:32px;letter-spacing:.28em;font-weight:700;text-align:center;color:#1a3c34;">${safeCode}</p>
+                <p style="margin:0;font-size:12px;line-height:1.5;color:#7a8a83;">Se você não pediu isso, ignore este e-mail. Sua conta permanece inativa.</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`,
+    text: `Olá, ${input.name}. Seu código para reativar a conta no Vandrae é ${input.code}. Vale por 10 minutos. Se você não pediu isso, ignore este e-mail.`,
+  })
+
+  if (error) {
+    logger.error(`[mail] falha ao enviar reativação: ${error.message}`)
+    throw new Error(describeResendError(error.message))
+  }
+}
+
 function passwordResetEmailHtml(link: string) {
   return `<!doctype html>
 <html lang="pt-BR">
