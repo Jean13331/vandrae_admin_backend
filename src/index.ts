@@ -12,6 +12,7 @@ import { enableAuditPersistence } from './repositories/audit.repository'
 import { createDashboardService } from './modules/dashboard/dashboard.service'
 import { createPostgresAdminUserRepository } from './repositories/adminUser.repository'
 import { createDashboardRepository } from './repositories/dashboard.repository'
+import { startHealthCheckJob } from './jobs/healthCheck.job'
 import { loadHttpsOptions, publicUrl } from './lib/https'
 import { lanIPv4 } from './lib/lan'
 import { logger } from './lib/logger'
@@ -41,7 +42,7 @@ async function bootstrap() {
 
   const adminUsers = createPostgresAdminUserRepository(pool)
   const dashboardService = createDashboardService(createDashboardRepository(pool))
-  const app = createApp(env, adminUsers, dashboardService, pool)
+  const { app, healthChecksService } = createApp(env, adminUsers, dashboardService, pool)
   const lanHost = lanIPv4()
   const useHttps = env.HTTPS && env.NODE_ENV !== 'production'
 
@@ -54,6 +55,7 @@ async function bootstrap() {
     await listenOnAllInterfaces(http.createServer(app), mobilePort)
     const mobileHost = lanHost ?? 'SEU_IP'
     logger.info(`[server] App mobile (HTTP na rede): http://${mobileHost}:${mobilePort}`)
+    startHealthCheckJob(healthChecksService)
     return
   }
 
@@ -62,6 +64,7 @@ async function bootstrap() {
   if (lanHost) {
     logger.info(`[server] App mobile (HTTP na rede): http://${lanHost}:${env.PORT}`)
   }
+  startHealthCheckJob(healthChecksService)
 }
 
 bootstrap().catch((error) => {

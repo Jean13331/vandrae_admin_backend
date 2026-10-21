@@ -297,6 +297,35 @@ export function createOpenApiSpec(env: Env) {
           },
         },
       },
+      '/admin/health-checks': {
+        get: {
+          tags: ['Health'],
+          summary: 'Histórico de pings horários da API',
+          parameters: [
+            {
+              name: 'limit',
+              in: 'query',
+              schema: { type: 'integer', default: 168 },
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Lista de health checks e resumo das últimas 24h',
+            },
+          },
+        },
+      },
+      '/admin/health-checks/run': {
+        post: {
+          tags: ['Health'],
+          summary: 'Executa um ping de health check agora',
+          responses: {
+            201: {
+              description: 'Ping gravado',
+            },
+          },
+        },
+      },
       '/admin/openapi': {
         get: {
           tags: ['Auth'],

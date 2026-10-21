@@ -469,3 +469,14 @@ ON auditoria(data_cadastro DESC);
 
 CREATE INDEX IF NOT EXISTS idx_auditoria_status
 ON auditoria(status);
+
+CREATE TABLE IF NOT EXISTS health_check (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    momento_ping TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status_http INTEGER NOT NULL,
+    duracao_ms INTEGER NOT NULL,
+    CONSTRAINT chk_health_check_status CHECK (status_http IN (200, 500))
+);
+
+CREATE INDEX IF NOT EXISTS idx_health_check_momento
+ON health_check (momento_ping DESC);
