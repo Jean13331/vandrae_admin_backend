@@ -3,6 +3,7 @@ import type { Env } from '../../config/env'
 import { sendPasswordResetEmail, sendReactivationCodeEmail } from '../../lib/mailer'
 import { durationFromNow } from '../../lib/duration'
 import { AppError } from '../../lib/errors'
+import { assertImageIsSafe } from '../../lib/imageModeration'
 import { logger } from '../../lib/logger'
 import {
   signAccessToken,
@@ -725,6 +726,7 @@ export function createAuthService(
 
     async updateProfilePhoto(usuarioId: string, input: UpdateProfilePhotoInput, actorEmail?: string) {
       const decoded = decodeProfilePhoto(input.arquivo, input.contentType)
+      await assertImageIsSafe(decoded.buffer, env)
       const user = await adminUsers.setProfilePhoto(usuarioId, decoded.buffer, decoded.contentType)
       if (!user) {
         throw new AppError(404, 'Usuário não encontrado.')

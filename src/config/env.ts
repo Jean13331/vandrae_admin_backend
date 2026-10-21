@@ -52,6 +52,13 @@ const envSchema = z
       ),
     GOOGLE_CLIENT_SECRET: z.string().optional().transform(emptyToUndefined),
     GOOGLE_MAPS_API_KEY: z.string().optional().transform(emptyToUndefined),
+    /** Opcional: chave só para Vision. Se vazio, usa GOOGLE_MAPS_API_KEY. */
+    GOOGLE_VISION_API_KEY: z.string().optional().transform(emptyToUndefined),
+    IMAGE_MODERATION_ENABLED: z
+      .enum(['true', 'false', '1', '0'])
+      .optional()
+      .default('true')
+      .transform((value) => value === 'true' || value === '1'),
     RESEND_API_KEY: z.string().optional().transform(emptyToUndefined),
     RESEND_FROM: z.string().optional().transform(emptyToUndefined),
     DATABASE_URL: z.string().optional().transform(emptyToUndefined),

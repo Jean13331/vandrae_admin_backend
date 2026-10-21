@@ -327,14 +327,14 @@ function mapAlert(row: AlertRow, app: boolean): TrailAlert {
     resolvidoPor: row.resolvido_por_id
       ? { id: row.resolvido_por_id, nome: row.resolvido_por_nome || 'Comunidade' }
       : null,
-    fotoUrl: row.tem_arquivo
+    fotoUrl: hasBinaryFlag(row.tem_arquivo)
       ? `${app ? '/trails' : '/admin/trails'}/${row.trilha_id}/alerts/${row.id}/photo`
       : null,
   }
 }
 
 function mapPhoto(trailId: string, photo: PhotoRow, app: boolean): TrailPhoto {
-  const url = photo.tem_arquivo
+  const url = hasBinaryFlag(photo.tem_arquivo)
     ? `${app ? '/trails' : '/admin/trails'}/${trailId}/photos/${photo.id}`
     : photo.url ?? ''
   return {
@@ -347,25 +347,43 @@ function mapPhoto(trailId: string, photo: PhotoRow, app: boolean): TrailPhoto {
   }
 }
 
+function hasBinaryFlag(value: boolean | string | null | undefined) {
+  return value === true || value === 't' || value === 'true'
+}
+
 function bindPointPhotos(trailId: string, points: TrailPoint[], photos: PhotoRow[], app: boolean) {
+  const activePhotos = photos.filter((photo) => photo.ativo !== false)
   const fotoPorPonto = new Map<string, string>()
-  const fotografias = photos.map((photo) => {
+  const fotografias = activePhotos.map((photo) => {
     const mapped = mapPhoto(trailId, photo, app)
     if (photo.pontos_trilha_id && mapped.url && !fotoPorPonto.has(photo.pontos_trilha_id)) {
       fotoPorPonto.set(photo.pontos_trilha_id, mapped.url)
     }
     return mapped
   })
-  const leftover = fotografias.filter((_, index) => !photos[index]?.pontos_trilha_id && Boolean(fotografias[index]?.url))
+  const leftover = fotografias.filter((_, index) => {
+    const source = activePhotos[index]
+    return Boolean(fotografias[index]?.url) && !source?.pontos_trilha_id
+  })
   let leftoverAt = 0
+
+  function takeLeftoverFor(point: TrailPoint) {
+    if (leftoverAt >= leftover.length) return null
+    const nome = point.nome || ''
+    // Pontos genéricos "Foto…" ou de perigo sem vínculo explícito.
+    if (point.tipo === 'PERIGO' || /^foto\b/i.test(nome) || /perigo|risco|cuidado/i.test(nome)) {
+      const url = leftover[leftoverAt]?.url ?? null
+      leftoverAt += 1
+      return url
+    }
+    return null
+  }
+
   const pontosDetalhe = points.map((point) => {
     const linked = fotoPorPonto.get(point.id)
     if (linked) return { ...point, fotoUrl: linked }
-    if (leftoverAt < leftover.length && /^foto\b/i.test(point.nome)) {
-      const url = leftover[leftoverAt]?.url ?? null
-      leftoverAt += 1
-      return { ...point, fotoUrl: url }
-    }
+    const fromLeftover = takeLeftoverFor(point)
+    if (fromLeftover) return { ...point, fotoUrl: fromLeftover }
     return { ...point, fotoUrl: point.fotoUrl ?? null }
   })
   return { pontosDetalhe, fotografias }
@@ -667,7 +685,9 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
         status: row.status === 'RESOLVIDO' ? ('RESOLVIDO' as const) : ('ATIVO' as const),
         confirmacoes: Number(row.confirmacoes ?? 0),
         createdAt: toIso(row.data_cadastro),
-        fotoUrl: row.tem_arquivo ? `/trails/${row.trilha_id}/alerts/${row.id}/photo` : null,
+        fotoUrl: hasBinaryFlag(row.tem_arquivo)
+          ? `/trails/${row.trilha_id}/alerts/${row.id}/photo`
+          : null,
         trilha: { id: row.trilha_id, nome: row.trilha_nome, ativo: row.trilha_ativa },
       }))
     },
@@ -854,13 +874,20 @@ export function createPostgresTrailRepository(pool: Pool): TrailRepository {
           photosByTrail.get(row.id) ?? [],
           true,
         )
+        const linkedUrls = new Set(
+          bound.pontosDetalhe.map((point) => point.fotoUrl).filter((url): url is string => Boolean(url)),
+        )
+        const prioritized = [
+          ...bound.fotografias.filter((photo) => linkedUrls.has(photo.url)),
+          ...bound.fotografias.filter((photo) => !linkedUrls.has(photo.url)),
+        ]
         return {
           ...mapSummary(row),
           inicio: pointLatLng(row.inicio_lat ?? null, row.inicio_lng ?? null),
           fim: pointLatLng(row.fim_lat ?? null, row.fim_lng ?? null),
           trajeto: parseTrajeto(row.trajeto),
           pontosDetalhe: bound.pontosDetalhe,
-          fotografias: bound.fotografias.slice(0, 8),
+          fotografias: prioritized.slice(0, 24),
           avisos: alertsByTrail.get(row.id) ?? [],
         }
       })

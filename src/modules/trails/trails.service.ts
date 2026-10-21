@@ -1,5 +1,7 @@
+import type { Env } from '../../config/env'
 import { AppError } from '../../lib/errors'
 import { lookupTrailElevation } from '../../lib/elevation'
+import { assertImageIsSafe } from '../../lib/imageModeration'
 import { logger } from '../../lib/logger'
 import type {
   CreateTrailAlertInput,
@@ -43,10 +45,16 @@ function decodeBase64Image(value: string) {
   }
 }
 
-export function createTrailsService(trails: TrailRepository) {
+export function createTrailsService(trails: TrailRepository, env: Env) {
   async function withElevation(trail: TrailDetail) {
     const elevacao = await lookupTrailElevation(trail.trajeto)
     return { ...trail, elevacao }
+  }
+
+  async function decodeAndModerateImage(value: string) {
+    const decoded = decodeBase64Image(value)
+    await assertImageIsSafe(decoded.buffer, env)
+    return decoded
   }
 
   return {
@@ -135,6 +143,17 @@ export function createTrailsService(trails: TrailRepository) {
       usuarioId: string,
       actorEmail?: string,
     ) {
+      // Valida todas as fotos antes de gravar a trilha.
+      const moderatedPhotos = []
+      for (const photo of input.fotos ?? []) {
+        const decoded = await decodeAndModerateImage(photo.arquivo)
+        moderatedPhotos.push({
+          ...photo,
+          contentType: decoded.contentType || photo.contentType || 'image/jpeg',
+          arquivo: decoded.buffer,
+        })
+      }
+
       const trail = await trails.create({
         usuarioId,
         nome: input.nome,
@@ -151,16 +170,15 @@ export function createTrailsService(trails: TrailRepository) {
         const next = await trails.addPoint(current.id, point)
         if (next) current = next
       }
-      for (const photo of input.fotos ?? []) {
-        const decoded = decodeBase64Image(photo.arquivo)
+      for (const photo of moderatedPhotos) {
         const pontoId =
           photo.pontosTrilhaId ||
           (photo.pontoIndex != null ? current.pontosDetalhe[photo.pontoIndex]?.id : null)
         const next = await trails.addPhoto(current.id, {
           usuarioId,
           descricao: photo.descricao,
-          contentType: decoded.contentType || photo.contentType || 'image/jpeg',
-          arquivo: decoded.buffer,
+          contentType: photo.contentType,
+          arquivo: photo.arquivo,
           pontosTrilhaId: pontoId,
         })
         if (next) current = next
@@ -212,7 +230,7 @@ export function createTrailsService(trails: TrailRepository) {
       usuarioId: string,
       actorEmail?: string,
     ) {
-      const decoded = decodeBase64Image(input.arquivo)
+      const decoded = await decodeAndModerateImage(input.arquivo)
       const payload: CreateTrailPhotoInput = {
         usuarioId,
         descricao: input.descricao,
@@ -243,7 +261,7 @@ export function createTrailsService(trails: TrailRepository) {
       let arquivo: Buffer | undefined
       let contentType: string | undefined
       if (input.arquivo) {
-        const decoded = decodeBase64Image(input.arquivo)
+        const decoded = await decodeAndModerateImage(input.arquivo)
         arquivo = decoded.buffer
         contentType = decoded.contentType || input.contentType || 'image/jpeg'
       }

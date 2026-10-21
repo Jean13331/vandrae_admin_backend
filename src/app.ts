@@ -74,7 +74,7 @@ export function createApp(
   const usersController = createUsersController(createUsersService(adminUsers, accessEmails, sessions, env))
   const accessController = createAccessController(createAccessService(accessEmails))
   const trailsController = createTrailsController(
-    createTrailsService(createPostgresTrailRepository(pool)),
+    createTrailsService(createPostgresTrailRepository(pool), env),
   )
   const moderationController = createModerationController(
     createModerationService(createModerationRepository(pool), env),
