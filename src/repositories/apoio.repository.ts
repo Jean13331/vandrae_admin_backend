@@ -26,6 +26,21 @@ function toIso(value: Date | string | null | undefined) {
   return new Date(value).toISOString()
 }
 
+/** Normaliza acentos/caixa para busca (ex.: João ≈ joao). */
+function foldSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+const SQL_FOLD_NOME = `translate(
+  lower(nome),
+  'áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ',
+  'aaaaaeeeeiiiiooooouuuucnaaaaaeeeeiiiiooooouuuucn'
+)`
+
 export function createApoioRepository(pool: Pool) {
   return {
     async recordSearch(usuarioId: string, trilhaIds: string[], termo?: string | null) {
@@ -76,7 +91,10 @@ export function createApoioRepository(pool: Pool) {
     async searchUsers(q: string): Promise<ApoioUserSummary[]> {
       const needle = q.trim()
       if (!needle) return []
+      const folded = foldSearch(needle)
+      if (!folded) return []
 
+      // Retorna TODOS os matches (nomes repetidos inclusos), não só o primeiro.
       const users = await pool.query<{
         id: string
         nome: string
@@ -89,12 +107,21 @@ export function createApoioRepository(pool: Pool) {
          FROM usuario
          WHERE role = 'USER'
            AND (
-             nome ILIKE '%' || $1 || '%'
-             OR email ILIKE '%' || $1 || '%'
+             ${SQL_FOLD_NOME} LIKE '%' || $1 || '%'
+             OR lower(email) LIKE '%' || $1 || '%'
            )
-         ORDER BY nome ASC
-         LIMIT 40`,
-        [needle],
+         ORDER BY
+           CASE
+             WHEN ${SQL_FOLD_NOME} = $1 THEN 0
+             WHEN ${SQL_FOLD_NOME} LIKE $1 || '%' THEN 1
+             WHEN lower(email) = $1 THEN 2
+             WHEN lower(email) LIKE $1 || '%' THEN 3
+             ELSE 4
+           END,
+           nome ASC,
+           email ASC
+         LIMIT 100`,
+        [folded],
       )
 
       if (!users.rows.length) return []
