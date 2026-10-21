@@ -288,6 +288,38 @@ END $$`,
   `CREATE INDEX IF NOT EXISTS idx_health_check_momento
     ON health_check (momento_ping DESC)`,
   `DO $$
+BEGIN
+  IF to_regclass('public.trilha') IS NOT NULL AND to_regclass('public.usuario') IS NOT NULL THEN
+    CREATE TABLE IF NOT EXISTS apoio_trilha_atividade (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      usuario_id UUID NOT NULL,
+      trilha_id UUID NOT NULL,
+      buscou BOOLEAN NOT NULL DEFAULT FALSE,
+      baixou BOOLEAN NOT NULL DEFAULT FALSE,
+      ultimo_termo VARCHAR(255),
+      data_primeira_busca TIMESTAMPTZ,
+      data_ultima_busca TIMESTAMPTZ,
+      data_download TIMESTAMPTZ,
+      data_cadastro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      data_modificacao TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_apoio_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT fk_apoio_trilha
+        FOREIGN KEY (trilha_id)
+        REFERENCES trilha(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT uq_apoio_usuario_trilha UNIQUE (usuario_id, trilha_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_apoio_usuario ON apoio_trilha_atividade(usuario_id);
+    CREATE INDEX IF NOT EXISTS idx_apoio_trilha ON apoio_trilha_atividade(trilha_id);
+    CREATE INDEX IF NOT EXISTS idx_apoio_modificacao ON apoio_trilha_atividade(data_modificacao DESC);
+  END IF;
+END $$`,
+  `DO $$
 DECLARE
   tbl record;
 BEGIN

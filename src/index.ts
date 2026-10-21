@@ -7,7 +7,6 @@ import { createApp } from './app'
 import { connectDatabase } from './database'
 import { ensurePasswordResetColumns } from './database/ensurePasswordReset'
 import { seedAdminUser, seedAllowedEmails } from './database/seed'
-import { seedDemoTrail } from './database/seedDemoTrail'
 import { enableAuditPersistence } from './repositories/audit.repository'
 import { createDashboardService } from './modules/dashboard/dashboard.service'
 import { createPostgresAdminUserRepository } from './repositories/adminUser.repository'
@@ -38,7 +37,6 @@ async function bootstrap() {
   await enableAuditPersistence(pool)
   await seedAdminUser(pool, env)
   await seedAllowedEmails(pool, env)
-  await seedDemoTrail(pool)
 
   const adminUsers = createPostgresAdminUserRepository(pool)
   const dashboardService = createDashboardService(createDashboardRepository(pool))

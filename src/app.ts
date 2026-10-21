@@ -21,6 +21,10 @@ import { createHealthChecksController } from './modules/health-checks/healthChec
 import { createHealthChecksRouter } from './modules/health-checks/healthChecks.routes'
 import { createHealthChecksService } from './modules/health-checks/healthChecks.service'
 import { createHealthCheckRepository } from './repositories/healthCheck.repository'
+import { createApoioController } from './modules/apoio/apoio.controller'
+import { createApoioAdminRouter, createApoioAppRouter } from './modules/apoio/apoio.routes'
+import { createApoioService } from './modules/apoio/apoio.service'
+import { createApoioRepository } from './repositories/apoio.repository'
 import { createPlacesRouter } from './modules/places/places.routes'
 import { createLogsRouter } from './modules/logs/logs.routes'
 import { createUsersController } from './modules/users/users.controller'
@@ -81,6 +85,7 @@ export function createApp(
   )
   const healthChecksService = createHealthChecksService(pool, createHealthCheckRepository(pool))
   const healthChecksController = createHealthChecksController(healthChecksService)
+  const apoioController = createApoioController(createApoioService(createApoioRepository(pool)))
 
   app.use(
     helmet({
@@ -136,6 +141,7 @@ export function createApp(
   app.use('/auth', requireAppAuth)
   app.use('/auth', createAppAuthRouter(authController))
   app.use('/trails', requireAppAuth)
+  app.use('/trails', createApoioAppRouter(apoioController))
   app.use('/trails', createAppTrailsRouter(trailsController))
   app.use('/places', requireAppAuth)
   app.use('/places', createPlacesRouter(env))
@@ -150,6 +156,7 @@ export function createApp(
   app.use('/admin/access', createAccessRouter(accessController))
   app.use('/admin/logs', createLogsRouter())
   app.use('/admin/health-checks', createHealthChecksRouter(healthChecksController))
+  app.use('/admin/apoio', createApoioAdminRouter(apoioController))
 
   app.use(notFound)
   app.use(errorHandler)
