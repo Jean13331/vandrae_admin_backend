@@ -50,7 +50,19 @@ import type { DashboardService } from './modules/dashboard/dashboard.service'
 import type { Pool } from 'pg'
 
 function corsOrigins(env: Env) {
-  return env.CORS_ORIGIN.split(/[,;\s]+/).map((item) => item.trim()).filter(Boolean)
+  return [
+    ...new Set(
+      env.CORS_ORIGIN.split(/[,;\s]+/)
+        .map((item) => item.trim().replace(/\/$/, ''))
+        .filter(Boolean),
+    ),
+  ]
+}
+
+function isAllowedCorsOrigin(origin: string | undefined, allowed: string[]) {
+  if (!origin) return true
+  const normalized = origin.replace(/\/$/, '')
+  return allowed.some((item) => item === normalized || item === '*')
 }
 
 export function createApp(
@@ -110,7 +122,8 @@ export function createApp(
     cors({
       origin(origin, callback) {
         const allowed = corsOrigins(env)
-        if (!origin || env.NODE_ENV !== 'production' || allowed.includes(origin)) {
+        // Em development libera qualquer origem; em production só a lista CORS_ORIGIN.
+        if (env.NODE_ENV !== 'production' || isAllowedCorsOrigin(origin, allowed)) {
           callback(null, true)
           return
         }
